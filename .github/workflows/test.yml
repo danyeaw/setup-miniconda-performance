@@ -57,7 +57,7 @@ jobs:
     - name: Test Environment Works
       run: |
         conda activate perf-test-${{ matrix.setup-type }}
-        python -c "import numpy, pandas, requests, pytest; print('✓ Environment working correctly')"
+        python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
         conda list
 
     - name: Time Environment Deletion
