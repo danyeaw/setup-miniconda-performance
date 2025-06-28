@@ -25,14 +25,14 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
 
     - name: Create Environment
-      run: conda env create -f environment.yml -n test
+      run: conda env create -f environment.yml -n test_warnings
 
     - name: Test Environment Works
       run: |
-        conda activate test
+        conda activate test_warnings
         python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
         conda list
 
     - name: Remove Environment
-      run: conda env remove -n test -y
+      run: conda env remove -n test_warnings -y
 
