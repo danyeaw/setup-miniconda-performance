@@ -252,6 +252,142 @@ jobs:
         }
         conda info
 
+  existing-environment-update:
+    name: Update Existing Environment (${{ matrix.shell-type }})
+    runs-on: windows-latest
+    outputs:
+      update-bash-time: ${{ steps.update-bash-results.outputs.update-time }}
+      update-pwsh-time: ${{ steps.update-pwsh-results.outputs.update-time }}
+      update-cmd-time: ${{ steps.update-cmd-results.outputs.update-time }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shell-type: [bash, pwsh, cmd]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Miniconda (creates default test environment)
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        auto-activate-base: false
+
+    - name: Check existing test environment
+      shell: bash -el {0}
+      run: |
+        echo "=== Checking existing test environment ==="
+        conda env list
+        conda activate test
+        echo "Test environment Python version:"
+        python --version
+        echo "Existing packages in test environment:"
+        conda list
+
+    - name: Time Environment Update (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing existing environment update with bash shell ==="
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        conda activate test
+        conda env update --name test --file environment.yml
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Environment update took: ${formatted_duration} seconds"
+        echo "UPDATE_TIME=${formatted_duration}" >> $GITHUB_ENV
+
+    - name: Time Environment Update (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
+      run: |
+        echo "=== Testing existing environment update with pwsh shell ==="
+        $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        
+        conda activate test
+        conda env update --name test --file environment.yml
+        
+        $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        $duration = powershell -Command "($end_time - $start_time) / 10000000"
+        $formatted_duration = [math]::Round($duration, 1)
+        echo "Environment update took: $formatted_duration seconds"
+        echo "UPDATE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+    - name: Time Environment Update (CMD)
+      if: matrix.shell-type == 'cmd'
+      shell: cmd /C CALL {0}
+      run: |
+        echo === Testing existing environment update with cmd shell ===
+        powershell -Command "$start_time = [System.DateTime]::Now.Ticks; echo \"$start_time\" > update_start.txt"
+        
+        conda activate test
+        conda env update --name test --file environment.yml
+        
+        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content update_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment update took: $formatted_duration seconds\"; echo \"UPDATE_TIME=$formatted_duration\" >> $env:GITHUB_ENV"
+
+    - name: Test Updated Environment (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
+      run: |
+        conda activate test
+        echo "=== Testing updated environment with bash ==="
+        python -c "import numpy, pandas, requests, pytest; print('Updated environment working correctly')"
+        echo "Final packages in updated test environment:"
+        conda list
+
+    - name: Test Updated Environment (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
+      run: |
+        conda activate test
+        echo "=== Testing updated environment with pwsh ==="
+        python -c "import numpy, pandas, requests, pytest; print('Updated environment working correctly')"
+        echo "Final packages in updated test environment:"
+        conda list
+
+    - name: Test Updated Environment (CMD)
+      if: matrix.shell-type == 'cmd'
+      shell: cmd /C CALL {0}
+      run: |
+        conda activate test
+        echo === Testing updated environment with cmd ===
+        python -c "import numpy, pandas, requests, pytest; print('Updated environment working correctly')"
+        echo Final packages in updated test environment:
+        conda list
+
+    - name: Set Update Bash Outputs
+      if: matrix.shell-type == 'bash'
+      id: update-bash-results
+      shell: pwsh
+      run: |
+        echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Update PowerShell Outputs
+      if: matrix.shell-type == 'pwsh'
+      id: update-pwsh-results
+      shell: pwsh
+      run: |
+        echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Update CMD Outputs
+      if: matrix.shell-type == 'cmd'
+      id: update-cmd-results
+      shell: pwsh
+      run: |
+        echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Report Environment Update Results
+      shell: pwsh
+      run: |
+        echo "=== EXISTING ENVIRONMENT UPDATE RESULTS ==="
+        echo "Shell Type: ${{ matrix.shell-type }}"
+        echo "Update Time: $env:UPDATE_TIME seconds"
+        echo "This tests updating the existing 'test' environment vs creating new environments"
+
   integrated-environment-setup:
     name: Integrated Environment Setup (${{ matrix.shell-type }})
     runs-on: windows-latest
@@ -718,7 +854,7 @@ jobs:
   performance-summary:
     name: Performance Summary
     runs-on: windows-latest
-    needs: [bundled-vs-latest, caching-performance, solver-optimization-proof, drive-optimization-proof, environment-caching, integrated-environment-setup]
+    needs: [bundled-vs-latest, caching-performance, solver-optimization-proof, drive-optimization-proof, environment-caching, integrated-environment-setup, existing-environment-update]
     if: always()
     
     steps:
@@ -827,6 +963,38 @@ jobs:
         echo "| Two-Step | cmd | ${latest_cmd_two_step}s | - |" >> performance-report.md
         echo "" >> performance-report.md
         
+        echo "## Existing Environment Update vs New Environment Creation" >> performance-report.md
+        echo "| Approach | Shell | Time | vs Latest Miniconda Creation |" >> performance-report.md
+        echo "|----------|-------|------|------------------------------|" >> performance-report.md
+        
+        $update_bash = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-bash-time }}'
+        $update_pwsh = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-pwsh-time }}'  
+        $update_cmd = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-cmd-time }}'
+        
+        # Compare with Latest Miniconda environment creation times
+        $update_bash_vs_creation = if ($update_bash -gt 0 -and $latest_bash_creation -gt 0) { 
+            $ratio = [math]::Round(($latest_bash_creation / $update_bash), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        $update_pwsh_vs_creation = if ($update_pwsh -gt 0 -and $latest_pwsh_creation -gt 0) { 
+            $ratio = [math]::Round(($latest_pwsh_creation / $update_pwsh), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        $update_cmd_vs_creation = if ($update_cmd -gt 0 -and $latest_cmd_creation -gt 0) { 
+            $ratio = [math]::Round(($latest_cmd_creation / $update_cmd), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        echo "| Update Existing | bash | ${update_bash}s | $update_bash_vs_creation |" >> performance-report.md
+        echo "| Update Existing | pwsh | ${update_pwsh}s | $update_pwsh_vs_creation |" >> performance-report.md
+        echo "| Update Existing | cmd | ${update_cmd}s | $update_cmd_vs_creation |" >> performance-report.md
+        echo "| Create New | bash | ${latest_bash_creation}s | - |" >> performance-report.md
+        echo "| Create New | pwsh | ${latest_pwsh_creation}s | - |" >> performance-report.md
+        echo "| Create New | cmd | ${latest_cmd_creation}s | - |" >> performance-report.md
+        echo "" >> performance-report.md
+        
         echo "## Package Caching Impact" >> performance-report.md
         echo "| Cache Mode | Installation Time | Speedup |" >> performance-report.md
         echo "|------------|-------------------|---------|" >> performance-report.md
@@ -912,6 +1080,34 @@ jobs:
         if (-not $fastest_integrated) { $fastest_integrated = 'Unable to determine' }
         echo "- **Fastest Integrated Setup:** $fastest_integrated" >> performance-report.md
         
+        # Best environment update approach
+        $update_times = @{
+            'bash' = $update_bash
+            'pwsh' = $update_pwsh
+            'cmd' = $update_cmd
+        }
+        $fastest_update = ($update_times.GetEnumerator() | Where-Object { $_.Value -gt 0 } | Sort-Object Value | Select-Object -First 1).Name
+        if (-not $fastest_update) { $fastest_update = 'Unable to determine' }
+        echo "- **Fastest Environment Update:** $fastest_update" >> performance-report.md
+        
+        # Determine if updating existing is generally faster than creating new
+        $avg_update_time = if ($update_bash -gt 0 -and $update_pwsh -gt 0 -and $update_cmd -gt 0) {
+            [math]::Round((($update_bash + $update_pwsh + $update_cmd) / 3), 1)
+        } else { 0 }
+        $avg_creation_time = if ($latest_bash_creation -gt 0 -and $latest_pwsh_creation -gt 0 -and $latest_cmd_creation -gt 0) {
+            [math]::Round((($latest_bash_creation + $latest_pwsh_creation + $latest_cmd_creation) / 3), 1)
+        } else { 0 }
+        $update_vs_create_benefit = if ($avg_update_time -gt 0 -and $avg_creation_time -gt 0) {
+            if ($avg_creation_time -gt $avg_update_time) {
+                $speedup = [math]::Round(($avg_creation_time / $avg_update_time), 1)
+                "Update ${speedup}x faster"
+            } else {
+                $slowdown = [math]::Round(($avg_update_time / $avg_creation_time), 1)
+                "Create ${slowdown}x faster"
+            }
+        } else { 'Unable to determine' }
+        echo "- **Update vs Create:** $update_vs_create_benefit" >> performance-report.md
+        
         echo "- **Fastest Shell (Runner Conda):** $(if ($runner_bash_total -le $runner_pwsh_total -and $runner_bash_total -le $runner_cmd_total -and $runner_bash_total -gt 0) { 'bash' } elseif ($runner_pwsh_total -le $runner_cmd_total -and $runner_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
         echo "- **Fastest Shell (Latest Miniconda):** $(if ($latest_bash_total -le $latest_pwsh_total -and $latest_bash_total -le $latest_cmd_total -and $latest_bash_total -gt 0) { 'bash' } elseif ($latest_pwsh_total -le $latest_cmd_total -and $latest_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
 
@@ -938,6 +1134,11 @@ jobs:
         echo "Integrated - Bash: ${{ needs.integrated-environment-setup.outputs.integrated-bash-setup }}s total"
         echo "Integrated - PowerShell: ${{ needs.integrated-environment-setup.outputs.integrated-pwsh-setup }}s total"
         echo "Integrated - CMD: ${{ needs.integrated-environment-setup.outputs.integrated-cmd-setup }}s total"
+        echo ""
+        echo "EXISTING ENVIRONMENT UPDATE:"
+        echo "Update Existing - Bash: ${{ needs.existing-environment-update.outputs.update-bash-time }}s"
+        echo "Update Existing - PowerShell: ${{ needs.existing-environment-update.outputs.update-pwsh-time }}s"
+        echo "Update Existing - CMD: ${{ needs.existing-environment-update.outputs.update-cmd-time }}s"
         echo ""
         echo "CACHING PERFORMANCE:"
         echo "Without Cache: ${{ needs.caching-performance.outputs.without-cache-time }}s"
