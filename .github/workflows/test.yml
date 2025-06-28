@@ -316,7 +316,7 @@ jobs:
         
         if [ "${{ steps.cache.outputs.cache-hit }}" != "true" ]; then
           echo "Cache miss - creating environment"
-          conda create -n test-env -f environment.yml
+          conda env create -f environment.yml -n test-env
         else
           echo "Cache hit - environment should be ready"
         fi
