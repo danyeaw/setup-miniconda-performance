@@ -32,15 +32,12 @@ jobs:
     - name: Setup Runner Conda (Baseline)
       if: matrix.setup-type == 'runner-conda'
       uses: conda-incubator/setup-miniconda@v3
-      with:
-        auto-activate-base: false
 
     - name: Setup Latest Miniconda
       if: matrix.setup-type == 'latest-miniconda'
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniconda-version: "latest"
-        auto-activate-base: false
 
     - name: Time Environment Creation
       run: |
@@ -111,7 +108,6 @@ jobs:
         miniconda-version: "latest"
         pkgs-dirs: ${{ matrix.cache-enabled == 'with-cache' && '~/conda_pkgs_dir' || '' }}
         use-only-tar-bz2: ${{ matrix.cache-enabled == 'with-cache' }}
-        auto-activate-base: false
 
     - name: Time Package Installation
       run: |
@@ -160,7 +156,6 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniconda-version: "latest"
-        auto-activate-base: false
 
     - name: Setup Miniconda - Libmamba Solver
       if: matrix.solver == 'libmamba'
@@ -169,7 +164,6 @@ jobs:
         miniconda-version: "latest"
         auto-update-conda: true
         conda-solver: libmamba
-        auto-activate-base: false
 
     - name: Setup Miniconda - Mamba
       if: matrix.solver == 'mamba'
@@ -179,7 +173,6 @@ jobs:
         auto-update-conda: true
         mamba-version: "*"
         channels: conda-forge,defaults
-        auto-activate-base: false
 
     - name: Time Solver Performance
       run: |
@@ -247,7 +240,6 @@ jobs:
         miniconda-version: "latest"
         pkgs-dirs: ${{ env.CACHE_PATH }}
         use-only-tar-bz2: true
-        auto-activate-base: false
 
     - name: Time Drive Performance
       run: |
@@ -296,7 +288,6 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniforge-version: latest
-        auto-activate-base: false
 
     - name: Cache Conda environment
       uses: actions/cache@v4
