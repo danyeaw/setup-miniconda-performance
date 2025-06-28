@@ -25,9 +25,9 @@ jobs:
     - name: Setup Runner Conda (Baseline)
       if: matrix.setup-type == 'runner-conda'
       shell: bash -el {0}
-      run: |
-        conda info
-        echo "Using runner's pre-installed conda"
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        auto-activate-base: false
 
     - name: Setup Latest Miniconda
       if: matrix.setup-type == 'latest-miniconda'
