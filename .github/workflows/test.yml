@@ -6,6 +6,10 @@ on:
     branches: [ main ]
     paths: [ '.github/workflows/test.yml' ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CACHE_NUMBER: 0
 
@@ -13,6 +17,9 @@ jobs:
   bundled-vs-latest:
     name: ${{ matrix.setup-type == 'runner-conda' && 'Runner Conda' || 'Latest Miniconda' }}
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash -el {0}
     strategy:
       fail-fast: false
       matrix:
@@ -24,7 +31,6 @@ jobs:
 
     - name: Setup Runner Conda (Baseline)
       if: matrix.setup-type == 'runner-conda'
-      shell: bash -el {0}
       uses: conda-incubator/setup-miniconda@v3
       with:
         auto-activate-base: false
@@ -37,7 +43,6 @@ jobs:
         auto-activate-base: false
 
     - name: Time Environment Creation
-      shell: bash -el {0}
       run: |
         echo "=== Testing ${{ matrix.setup-type }} setup performance ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -50,14 +55,12 @@ jobs:
         echo "CREATION_TIME=${duration}" >> $GITHUB_ENV
 
     - name: Test Environment Works
-      shell: bash -el {0}
       run: |
         conda activate perf-test-${{ matrix.setup-type }}
         python -c "import numpy, pandas, requests, pytest; print('✓ Environment working correctly')"
         conda list
 
     - name: Time Environment Deletion
-      shell: bash -el {0}
       run: |
         echo "=== Testing environment deletion ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -70,7 +73,6 @@ jobs:
         echo "DELETION_TIME=${duration}" >> $GITHUB_ENV
 
     - name: Report Core Performance Results
-      shell: bash -el {0}
       run: |
         echo "=== CORE PERFORMANCE RESULTS ==="
         echo "Setup Type: ${{ matrix.setup-type }}"
@@ -82,6 +84,9 @@ jobs:
   caching-performance:
     name: Caching Performance (${{ matrix.cache-enabled }})
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash -el {0}
     strategy:
       fail-fast: false
       matrix:
@@ -110,7 +115,6 @@ jobs:
         auto-activate-base: false
 
     - name: Time Package Installation
-      shell: bash -el {0}
       run: |
         echo "=== Testing installation ${{ matrix.cache-enabled }} ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -123,26 +127,26 @@ jobs:
         echo "INSTALL_TIME=${duration}" >> $GITHUB_ENV
 
     - name: Verify Installation
-      shell: bash -el {0}
       run: |
         conda activate cache-perf-test
         python -c "import numpy, pandas, requests, pytest; print('✓ All packages working')"
 
     - name: Report Cache Performance Results
-      shell: bash -el {0}
       run: |
         echo "=== CACHE PERFORMANCE RESULTS ==="
         echo "Cache Mode: ${{ matrix.cache-enabled }}"
         echo "Installation Time: ${INSTALL_TIME} seconds"
 
     - name: Cleanup
-      shell: bash -el {0}
       run: conda env remove -n cache-perf-test -y
 
   solver-optimization-proof:
     name: Solver Optimization (${{ matrix.solver }})
     runs-on: windows-latest
     needs: bundled-vs-latest
+    defaults:
+      run:
+        shell: bash -el {0}
     strategy:
       fail-fast: false
       matrix:
@@ -182,7 +186,6 @@ jobs:
         auto-activate-base: false
 
     - name: Time Solver Performance
-      shell: bash -el {0}
       run: |
         echo "=== Testing ${{ matrix.solver }} solver performance ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -199,7 +202,6 @@ jobs:
         echo "SOLVER_TIME=${duration}" >> $GITHUB_ENV
 
     - name: Report Solver Optimization Results
-      shell: bash -el {0}
       run: |
         echo "=== SOLVER OPTIMIZATION RESULTS ==="
         echo "Solver: ${{ matrix.solver }}"
@@ -207,13 +209,15 @@ jobs:
         echo "Compare with 'default' results to see if optimization helps"
 
     - name: Cleanup
-      shell: bash -el {0}
       run: conda env remove -n solver-perf-test -y
 
   drive-optimization-proof:
     name: Drive Optimization (${{ matrix.drive }})
     runs-on: windows-latest
     needs: caching-performance
+    defaults:
+      run:
+        shell: bash -el {0}
     strategy:
       fail-fast: false
       matrix:
@@ -251,7 +255,6 @@ jobs:
         auto-activate-base: false
 
     - name: Time Drive Performance
-      shell: bash -el {0}
       run: |
         echo "=== Testing ${{ matrix.drive }} performance ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -264,7 +267,6 @@ jobs:
         echo "DRIVE_TIME=${duration}" >> $GITHUB_ENV
 
     - name: Report Drive Optimization Results
-      shell: bash -el {0}
       run: |
         echo "=== DRIVE OPTIMIZATION RESULTS ==="
         echo "Drive: ${{ matrix.drive }}"
@@ -273,12 +275,14 @@ jobs:
         echo "Compare c-drive vs d-drive results to see if D: drive helps"
 
     - name: Cleanup
-      shell: bash -el {0}
       run: conda env remove -n drive-perf-test -y
 
   environment-caching:
     name: Environment Cache Test (${{ matrix.cache-run }})
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash -el {0}
     strategy:
       fail-fast: false
       matrix:
@@ -310,7 +314,6 @@ jobs:
       id: cache
 
     - name: Time Environment Update (Cache Miss/Hit)
-      shell: bash -el {0}
       run: |
         echo "=== Testing environment caching (${{ matrix.cache-run }} run) ==="
         echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
@@ -330,13 +333,11 @@ jobs:
         echo "ENV_CACHE_TIME=${duration}" >> $GITHUB_ENV
 
     - name: Test cached environment
-      shell: bash -el {0}
       run: |
         conda activate test-env
         python -c "import numpy, pandas, requests, pytest; print('Cached environment working correctly')"
 
     - name: Report Environment Cache Performance
-      shell: bash -el {0}
       run: |
         echo "=== ENVIRONMENT CACHE PERFORMANCE SUMMARY ==="
         echo "OS: Windows"
@@ -414,3 +415,4 @@ jobs:
         echo ""
         echo "Check job logs to compare actual timing numbers."
       shell: pwsh
+
