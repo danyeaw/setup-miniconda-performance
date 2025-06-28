@@ -595,7 +595,6 @@ jobs:
     runs-on: windows-latest
     outputs:
       default-solver-time: ${{ steps.default-results.outputs.solver-time }}
-      libmamba-solver-time: ${{ steps.libmamba-results.outputs.solver-time }}
       mamba-solver-time: ${{ steps.mamba-results.outputs.solver-time }}
       mamba-v1-solver-time: ${{ steps.mamba-v1-results.outputs.solver-time }}
     defaults:
@@ -604,7 +603,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        solver: [default, libmamba, mamba, mamba-v1]
+        solver: [default, mamba, mamba-v1]
     
     steps:
     - name: Checkout
@@ -615,14 +614,6 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniconda-version: "latest"
-
-    - name: Setup Miniconda - Libmamba Solver
-      if: matrix.solver == 'libmamba'
-      uses: conda-incubator/setup-miniconda@v3
-      with:
-        miniconda-version: "latest"
-        auto-update-conda: true
-        conda-solver: libmamba
 
     - name: Setup Miniconda - Mamba
       if: matrix.solver == 'mamba'
@@ -662,12 +653,6 @@ jobs:
     - name: Set Default Solver Outputs
       if: matrix.solver == 'default'
       id: default-results
-      run: |
-        echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
-
-    - name: Set Libmamba Solver Outputs
-      if: matrix.solver == 'libmamba'
-      id: libmamba-results
       run: |
         echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
 
@@ -1021,16 +1006,13 @@ jobs:
         echo "| Solver | Installation Time | vs Default |" >> performance-report.md
         echo "|--------|-------------------|------------|" >> performance-report.md
         $default_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.default-solver-time }}'
-        $libmamba_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}'
         $mamba_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}'
         $mamba_v1_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}'
         
-        $libmamba_vs_default = if ($libmamba_solver -gt 0) { [math]::Round(($default_solver / $libmamba_solver), 1) } else { 'N/A' }
         $mamba_vs_default = if ($mamba_solver -gt 0) { [math]::Round(($default_solver / $mamba_solver), 1) } else { 'N/A' }
         $mamba_v1_vs_default = if ($mamba_v1_solver -gt 0) { [math]::Round(($default_solver / $mamba_v1_solver), 1) } else { 'N/A' }
         
-        echo "| Default | ${default_solver}s | - |" >> performance-report.md
-        echo "| Libmamba | ${libmamba_solver}s | ${libmamba_vs_default}x |" >> performance-report.md
+        echo "| Default (Libmamba) | ${default_solver}s | - |" >> performance-report.md
         echo "| Mamba | ${mamba_solver}s | ${mamba_vs_default}x |" >> performance-report.md
         echo "| Mamba v1 | ${mamba_v1_solver}s | ${mamba_v1_vs_default}x |" >> performance-report.md
         echo "" >> performance-report.md
@@ -1069,8 +1051,7 @@ jobs:
         
         # Determine fastest solver
         $solver_times = @{
-            'Default' = $default_solver
-            'Libmamba' = $libmamba_solver  
+            'Default (Libmamba)' = $default_solver
             'Mamba' = $mamba_solver
             'Mamba v1' = $mamba_v1_solver
         }
@@ -1162,7 +1143,6 @@ jobs:
         echo ""
         echo "SOLVER PERFORMANCE:"
         echo "Default Solver: ${{ needs.solver-optimization-proof.outputs.default-solver-time }}s"
-        echo "Libmamba Solver: ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}s"
         echo "Mamba Solver: ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}s"
         echo "Mamba v1 Solver: ${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}s"
         echo ""
