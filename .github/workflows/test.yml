@@ -15,31 +15,44 @@ env:
 
 jobs:
   bundled-vs-latest:
-    name: ${{ matrix.setup-type == 'runner-conda' && 'Runner Conda' || 'Latest Miniconda' }}
+    name: ${{ matrix.setup-type == 'runner-conda' && 'Runner Conda' || 'Latest Miniconda' }} (${{ matrix.shell-type }})
     runs-on: windows-latest
     outputs:
-      runner-conda-setup: ${{ steps.runner-conda-results.outputs.setup-time }}
-      runner-conda-creation: ${{ steps.runner-conda-results.outputs.creation-time }}
-      runner-conda-deletion: ${{ steps.runner-conda-results.outputs.deletion-time }}
-      latest-miniconda-setup: ${{ steps.latest-miniconda-results.outputs.setup-time }}
-      latest-miniconda-creation: ${{ steps.latest-miniconda-results.outputs.creation-time }}
-      latest-miniconda-deletion: ${{ steps.latest-miniconda-results.outputs.deletion-time }}
-    defaults:
-      run:
-        shell: bash -el {0}
+      # Runner Conda outputs
+      runner-conda-bash-setup: ${{ steps.runner-conda-bash-results.outputs.setup-time }}
+      runner-conda-bash-creation: ${{ steps.runner-conda-bash-results.outputs.creation-time }}
+      runner-conda-bash-deletion: ${{ steps.runner-conda-bash-results.outputs.deletion-time }}
+      runner-conda-pwsh-setup: ${{ steps.runner-conda-pwsh-results.outputs.setup-time }}
+      runner-conda-pwsh-creation: ${{ steps.runner-conda-pwsh-results.outputs.creation-time }}
+      runner-conda-pwsh-deletion: ${{ steps.runner-conda-pwsh-results.outputs.deletion-time }}
+      runner-conda-cmd-setup: ${{ steps.runner-conda-cmd-results.outputs.setup-time }}
+      runner-conda-cmd-creation: ${{ steps.runner-conda-cmd-results.outputs.creation-time }}
+      runner-conda-cmd-deletion: ${{ steps.runner-conda-cmd-results.outputs.deletion-time }}
+      # Latest Miniconda outputs
+      latest-miniconda-bash-setup: ${{ steps.latest-miniconda-bash-results.outputs.setup-time }}
+      latest-miniconda-bash-creation: ${{ steps.latest-miniconda-bash-results.outputs.creation-time }}
+      latest-miniconda-bash-deletion: ${{ steps.latest-miniconda-bash-results.outputs.deletion-time }}
+      latest-miniconda-pwsh-setup: ${{ steps.latest-miniconda-pwsh-results.outputs.setup-time }}
+      latest-miniconda-pwsh-creation: ${{ steps.latest-miniconda-pwsh-results.outputs.creation-time }}
+      latest-miniconda-pwsh-deletion: ${{ steps.latest-miniconda-pwsh-results.outputs.deletion-time }}
+      latest-miniconda-cmd-setup: ${{ steps.latest-miniconda-cmd-results.outputs.setup-time }}
+      latest-miniconda-cmd-creation: ${{ steps.latest-miniconda-cmd-results.outputs.creation-time }}
+      latest-miniconda-cmd-deletion: ${{ steps.latest-miniconda-cmd-results.outputs.deletion-time }}
     strategy:
       fail-fast: false
       matrix:
         setup-type: [runner-conda, latest-miniconda]
+        shell-type: [bash, pwsh, cmd]
     
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
     - name: Start Setup Timing
+      shell: pwsh
       run: |
-        echo "=== Starting ${{ matrix.setup-type }} setup timing ==="
-        echo "SETUP_START_TIME=$(powershell -Command "[System.DateTime]::Now.Ticks")" >> $GITHUB_ENV
+        echo "=== Starting ${{ matrix.setup-type }} setup timing with ${{ matrix.shell-type }} shell ==="
+        echo "SETUP_START_TIME=$(powershell -Command "[System.DateTime]::Now.Ticks")" >> $env:GITHUB_ENV
 
     - name: Setup Runner Conda (Baseline)
       if: matrix.setup-type == 'runner-conda'
@@ -52,63 +65,191 @@ jobs:
         miniconda-version: "latest"
 
     - name: Calculate Setup Time
+      shell: pwsh
       run: |
-        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-        duration=$(powershell -Command "($end_time - $SETUP_START_TIME) / 10000000")
-        echo "${{ matrix.setup-type }} setup took: ${duration} seconds"
-        echo "SETUP_TIME=${duration}" >> $GITHUB_ENV
+        $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        $duration = powershell -Command "($end_time - $env:SETUP_START_TIME) / 10000000"
+        $formatted_duration = [math]::Round($duration, 1)
+        echo "${{ matrix.setup-type }} setup with ${{ matrix.shell-type }} took: $formatted_duration seconds"
+        echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
-    - name: Time Environment Creation
+    - name: Time Environment Creation (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
       run: |
-        echo "=== Testing ${{ matrix.setup-type }} setup performance ==="
+        echo "=== Testing ${{ matrix.setup-type }} setup performance with bash shell ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
-        conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}
+        conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}-bash
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-        echo "Environment creation took: ${duration} seconds"
-        echo "CREATION_TIME=${duration}" >> $GITHUB_ENV
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Environment creation took: ${formatted_duration} seconds"
+        echo "CREATION_TIME=${formatted_duration}" >> $GITHUB_ENV
 
-    - name: Test Environment Works
+    - name: Time Environment Creation (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
       run: |
-        conda activate perf-test-${{ matrix.setup-type }}
+        echo "=== Testing ${{ matrix.setup-type }} setup performance with pwsh shell ==="
+        $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        
+        conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}-pwsh
+        
+        $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        $duration = powershell -Command "($end_time - $start_time) / 10000000"
+        $formatted_duration = [math]::Round($duration, 1)
+        echo "Environment creation took: $formatted_duration seconds"
+        echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+    - name: Time Environment Creation (CMD)
+      if: matrix.shell-type == 'cmd'
+      shell: cmd /C CALL {0}
+      run: |
+        echo === Testing ${{ matrix.setup-type }} setup performance with cmd shell ===
+        powershell -Command "$start_time = [System.DateTime]::Now.Ticks; echo \"$start_time\" > creation_start.txt"
+        
+        conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}-cmd
+        
+        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content creation_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment creation took: $formatted_duration seconds\"; echo \"CREATION_TIME=$formatted_duration\" >> $env:GITHUB_ENV"
+
+    - name: Test Environment Works (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
+      run: |
+        conda activate perf-test-${{ matrix.setup-type }}-bash
         python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
         conda list
 
-    - name: Time Environment Deletion
+    - name: Test Environment Works (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
       run: |
-        echo "=== Testing environment deletion ==="
+        conda activate perf-test-${{ matrix.setup-type }}-pwsh
+        python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
+        conda list
+
+    - name: Test Environment Works (CMD)
+      if: matrix.shell-type == 'cmd'
+      shell: cmd /C CALL {0}
+      run: |
+        conda activate perf-test-${{ matrix.setup-type }}-cmd
+        python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
+        conda list
+
+    - name: Time Environment Deletion (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing environment deletion with bash ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
-        conda env remove -n perf-test-${{ matrix.setup-type }} -y
+        conda env remove -n perf-test-${{ matrix.setup-type }}-bash -y
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-        echo "Environment deletion took: ${duration} seconds"
-        echo "DELETION_TIME=${duration}" >> $GITHUB_ENV
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Environment deletion took: ${formatted_duration} seconds"
+        echo "DELETION_TIME=${formatted_duration}" >> $GITHUB_ENV
 
-    - name: Set Runner Conda Outputs
-      if: matrix.setup-type == 'runner-conda'
-      id: runner-conda-results
+    - name: Time Environment Deletion (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
       run: |
-        echo "creation-time=${CREATION_TIME}" >> $GITHUB_OUTPUT
-        echo "deletion-time=${DELETION_TIME}" >> $GITHUB_OUTPUT
+        echo "=== Testing environment deletion with pwsh ==="
+        $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        
+        conda env remove -n perf-test-${{ matrix.setup-type }}-pwsh -y
+        
+        $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        $duration = powershell -Command "($end_time - $start_time) / 10000000"
+        $formatted_duration = [math]::Round($duration, 1)
+        echo "Environment deletion took: $formatted_duration seconds"
+        echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
-    - name: Set Latest Miniconda Outputs
-      if: matrix.setup-type == 'latest-miniconda'
-      id: latest-miniconda-results
+    - name: Time Environment Deletion (CMD)
+      if: matrix.shell-type == 'cmd'
+      shell: cmd /C CALL {0}
       run: |
-        echo "creation-time=${CREATION_TIME}" >> $GITHUB_OUTPUT
-        echo "deletion-time=${DELETION_TIME}" >> $GITHUB_OUTPUT
+        echo === Testing environment deletion with cmd ===
+        powershell -Command "$start_time = [System.DateTime]::Now.Ticks; echo \"$start_time\" > deletion_start.txt"
+        
+        conda env remove -n perf-test-${{ matrix.setup-type }}-cmd -y
+        
+        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content deletion_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment deletion took: $formatted_duration seconds\"; echo \"DELETION_TIME=$formatted_duration\" >> $env:GITHUB_ENV"
+
+    # Set outputs for each combination
+    - name: Set Runner Conda Bash Outputs
+      if: matrix.setup-type == 'runner-conda' && matrix.shell-type == 'bash'
+      id: runner-conda-bash-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+        echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+        echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Runner Conda PowerShell Outputs
+      if: matrix.setup-type == 'runner-conda' && matrix.shell-type == 'pwsh'
+      id: runner-conda-pwsh-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+        echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+        echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Runner Conda CMD Outputs
+      if: matrix.setup-type == 'runner-conda' && matrix.shell-type == 'cmd'
+      id: runner-conda-cmd-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+        echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+        echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Latest Miniconda Bash Outputs
+      if: matrix.setup-type == 'latest-miniconda' && matrix.shell-type == 'bash'
+      id: latest-miniconda-bash-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+        echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+        echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Latest Miniconda PowerShell Outputs
+      if: matrix.setup-type == 'latest-miniconda' && matrix.shell-type == 'pwsh'
+      id: latest-miniconda-pwsh-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+        echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+        echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Latest Miniconda CMD Outputs
+      if: matrix.setup-type == 'latest-miniconda' && matrix.shell-type == 'cmd'
+      id: latest-miniconda-cmd-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+        echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+        echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
 
     - name: Report Core Performance Results
+      shell: pwsh
       run: |
         echo "=== CORE PERFORMANCE RESULTS ==="
         echo "Setup Type: ${{ matrix.setup-type }}"
-        echo "Creation Time: ${CREATION_TIME} seconds"
-        echo "Deletion Time: ${DELETION_TIME} seconds"
-        echo "Total Time: $(powershell -Command "${CREATION_TIME} + ${DELETION_TIME}") seconds"
+        echo "Shell Type: ${{ matrix.shell-type }}"
+        echo "Setup Time: $env:SETUP_TIME seconds"
+        echo "Creation Time: $env:CREATION_TIME seconds"
+        echo "Deletion Time: $env:DELETION_TIME seconds"
+        try {
+          $total = [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "Total Time: $formatted_total seconds"
+        } catch {
+          echo "Total Time: Unable to calculate"
+        }
         conda info
 
   caching-performance:
@@ -154,8 +295,9 @@ jobs:
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-        echo "Package installation took: ${duration} seconds"
-        echo "INSTALL_TIME=${duration}" >> $GITHUB_ENV
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Package installation took: ${formatted_duration} seconds"
+        echo "INSTALL_TIME=${formatted_duration}" >> $GITHUB_ENV
 
     - name: Verify Installation
       run: |
@@ -248,8 +390,9 @@ jobs:
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-        echo "Solver installation took: ${duration} seconds"
-        echo "SOLVER_TIME=${duration}" >> $GITHUB_ENV
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Solver installation took: ${formatted_duration} seconds"
+        echo "SOLVER_TIME=${formatted_duration}" >> $GITHUB_ENV
 
     - name: Set Default Solver Outputs
       if: matrix.solver == 'default'
@@ -342,8 +485,9 @@ jobs:
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-        echo "Drive installation took: ${duration} seconds"
-        echo "DRIVE_TIME=${duration}" >> $GITHUB_ENV
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Drive installation took: ${formatted_duration} seconds"
+        echo "DRIVE_TIME=${formatted_duration}" >> $GITHUB_ENV
 
     - name: Set C Drive Outputs
       if: matrix.drive == 'c-drive'
@@ -423,8 +567,9 @@ jobs:
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-        echo "Environment setup took: ${duration} seconds"
-        echo "ENV_CACHE_TIME=${duration}" >> $GITHUB_ENV
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Environment setup took: ${formatted_duration} seconds"
+        echo "ENV_CACHE_TIME=${formatted_duration}" >> $GITHUB_ENV
 
     - name: Set First Run Outputs
       if: matrix.cache-run == 'first'
@@ -464,6 +609,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Create Performance Report
+      shell: pwsh
       run: |
         echo "# Miniconda Performance Test Results" > performance-report.md
         echo "" >> performance-report.md
@@ -471,48 +617,140 @@ jobs:
         echo "**OS:** Windows" >> performance-report.md
         echo "" >> performance-report.md
         
-        echo "## Runner vs Latest Miniconda" >> performance-report.md
-        echo "| Setup Type | Miniconda Setup | Environment Creation | Environment Deletion | Total Time |" >> performance-report.md
-        echo "|------------|-----------------|---------------------|---------------------|------------|" >> performance-report.md
-        echo "| Runner Conda | ${{ needs.bundled-vs-latest.outputs.runner-conda-setup }}s | ${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}s | ${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}s | $(powershell -Command "[double]'${{ needs.bundled-vs-latest.outputs.runner-conda-setup }}' + [double]'${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}' + [double]'${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}'")s |" >> performance-report.md
-        echo "| Latest Miniconda | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-setup }}s | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}s | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}s | $(powershell -Command "[double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-setup }}' + [double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}' + [double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}'")s |" >> performance-report.md
+        echo "## Runner vs Latest Miniconda by Shell" >> performance-report.md
+        echo "| Setup Type | Shell | Miniconda Setup | Environment Creation | Environment Deletion | Total Time |" >> performance-report.md
+        echo "|------------|-------|-----------------|---------------------|---------------------|------------|" >> performance-report.md
+        
+        # Helper function to safely convert to double with fallback and format
+        function Get-SafeDouble($value) {
+            try {
+                if ([string]::IsNullOrEmpty($value) -or $value -eq "") {
+                    return 0
+                }
+                return [math]::Round([double]$value, 1)
+            } catch {
+                return 0
+            }
+        }
+        
+        # Runner Conda results
+        $runner_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-setup }}'
+        $runner_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-creation }}'
+        $runner_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-deletion }}'
+        $runner_bash_total = [math]::Round(($runner_bash_setup + $runner_bash_creation + $runner_bash_deletion), 1)
+        
+        $runner_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-setup }}'
+        $runner_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-creation }}'
+        $runner_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-deletion }}'
+        $runner_pwsh_total = [math]::Round(($runner_pwsh_setup + $runner_pwsh_creation + $runner_pwsh_deletion), 1)
+        
+        $runner_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-setup }}'
+        $runner_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-creation }}'
+        $runner_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-deletion }}'
+        $runner_cmd_total = [math]::Round(($runner_cmd_setup + $runner_cmd_creation + $runner_cmd_deletion), 1)
+        
+        echo "| Runner Conda | bash | ${runner_bash_setup}s | ${runner_bash_creation}s | ${runner_bash_deletion}s | ${runner_bash_total}s |" >> performance-report.md
+        echo "| Runner Conda | pwsh | ${runner_pwsh_setup}s | ${runner_pwsh_creation}s | ${runner_pwsh_deletion}s | ${runner_pwsh_total}s |" >> performance-report.md
+        echo "| Runner Conda | cmd | ${runner_cmd_setup}s | ${runner_cmd_creation}s | ${runner_cmd_deletion}s | ${runner_cmd_total}s |" >> performance-report.md
+        
+        # Latest Miniconda results
+        $latest_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-setup }}'
+        $latest_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-creation }}'
+        $latest_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-deletion }}'
+        $latest_bash_total = [math]::Round(($latest_bash_setup + $latest_bash_creation + $latest_bash_deletion), 1)
+        
+        $latest_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-setup }}'
+        $latest_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-creation }}'
+        $latest_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-deletion }}'
+        $latest_pwsh_total = [math]::Round(($latest_pwsh_setup + $latest_pwsh_creation + $latest_pwsh_deletion), 1)
+        
+        $latest_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-setup }}'
+        $latest_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-creation }}'
+        $latest_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-deletion }}'
+        $latest_cmd_total = [math]::Round(($latest_cmd_setup + $latest_cmd_creation + $latest_cmd_deletion), 1)
+        
+        echo "| Latest Miniconda | bash | ${latest_bash_setup}s | ${latest_bash_creation}s | ${latest_bash_deletion}s | ${latest_bash_total}s |" >> performance-report.md
+        echo "| Latest Miniconda | pwsh | ${latest_pwsh_setup}s | ${latest_pwsh_creation}s | ${latest_pwsh_deletion}s | ${latest_pwsh_total}s |" >> performance-report.md
+        echo "| Latest Miniconda | cmd | ${latest_cmd_setup}s | ${latest_cmd_creation}s | ${latest_cmd_deletion}s | ${latest_cmd_total}s |" >> performance-report.md
         echo "" >> performance-report.md
         
         echo "## Package Caching Impact" >> performance-report.md
         echo "| Cache Mode | Installation Time | Speedup |" >> performance-report.md
         echo "|------------|-------------------|---------|" >> performance-report.md
-        echo "| Without Cache | ${{ needs.caching-performance.outputs.without-cache-time }}s | - |" >> performance-report.md
-        echo "| With Cache | ${{ needs.caching-performance.outputs.with-cache-time }}s | $(powershell -Command "if (${{ needs.caching-performance.outputs.without-cache-time }} -gt 0) { [math]::Round((${{ needs.caching-performance.outputs.without-cache-time }} / ${{ needs.caching-performance.outputs.with-cache-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
+        $without_cache = Get-SafeDouble '${{ needs.caching-performance.outputs.without-cache-time }}'
+        $with_cache = Get-SafeDouble '${{ needs.caching-performance.outputs.with-cache-time }}'
+        $cache_speedup = if ($with_cache -gt 0) { [math]::Round(($without_cache / $with_cache), 1) } else { 'N/A' }
+        echo "| Without Cache | ${without_cache}s | - |" >> performance-report.md
+        echo "| With Cache | ${with_cache}s | ${cache_speedup}x |" >> performance-report.md
         echo "" >> performance-report.md
         
         echo "## Solver Performance" >> performance-report.md
         echo "| Solver | Installation Time | vs Default |" >> performance-report.md
         echo "|--------|-------------------|------------|" >> performance-report.md
-        echo "| Default | ${{ needs.solver-optimization-proof.outputs.default-solver-time }}s | - |" >> performance-report.md
-        echo "| Libmamba | ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}s | $(powershell -Command "if (${{ needs.solver-optimization-proof.outputs.default-solver-time }} -gt 0) { [math]::Round((${{ needs.solver-optimization-proof.outputs.default-solver-time }} / ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
-        echo "| Mamba | ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}s | $(powershell -Command "if (${{ needs.solver-optimization-proof.outputs.default-solver-time }} -gt 0) { [math]::Round((${{ needs.solver-optimization-proof.outputs.default-solver-time }} / ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
+        $default_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.default-solver-time }}'
+        $libmamba_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}'
+        $mamba_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}'
+        $mamba_v1_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}'
+        
+        $libmamba_vs_default = if ($libmamba_solver -gt 0) { [math]::Round(($default_solver / $libmamba_solver), 1) } else { 'N/A' }
+        $mamba_vs_default = if ($mamba_solver -gt 0) { [math]::Round(($default_solver / $mamba_solver), 1) } else { 'N/A' }
+        $mamba_v1_vs_default = if ($mamba_v1_solver -gt 0) { [math]::Round(($default_solver / $mamba_v1_solver), 1) } else { 'N/A' }
+        
+        echo "| Default | ${default_solver}s | - |" >> performance-report.md
+        echo "| Libmamba | ${libmamba_solver}s | ${libmamba_vs_default}x |" >> performance-report.md
+        echo "| Mamba | ${mamba_solver}s | ${mamba_vs_default}x |" >> performance-report.md
+        echo "| Mamba v1 | ${mamba_v1_solver}s | ${mamba_v1_vs_default}x |" >> performance-report.md
         echo "" >> performance-report.md
         
         echo "## Drive Performance" >> performance-report.md
         echo "| Drive | Installation Time | vs C: Drive |" >> performance-report.md
         echo "|-------|-------------------|-------------|" >> performance-report.md
-        echo "| C: Drive | ${{ needs.drive-optimization-proof.outputs.c-drive-time }}s | - |" >> performance-report.md
-        echo "| D: Drive | ${{ needs.drive-optimization-proof.outputs.d-drive-time }}s | $(powershell -Command "if (${{ needs.drive-optimization-proof.outputs.c-drive-time }} -gt 0) { [math]::Round((${{ needs.drive-optimization-proof.outputs.c-drive-time }} / ${{ needs.drive-optimization-proof.outputs.d-drive-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
+        $c_drive = Get-SafeDouble '${{ needs.drive-optimization-proof.outputs.c-drive-time }}'
+        $d_drive = Get-SafeDouble '${{ needs.drive-optimization-proof.outputs.d-drive-time }}'
+        $drive_comparison = if ($d_drive -gt 0) { [math]::Round(($c_drive / $d_drive), 1) } else { 'N/A' }
+        echo "| C: Drive | ${c_drive}s | - |" >> performance-report.md
+        echo "| D: Drive | ${d_drive}s | ${drive_comparison}x |" >> performance-report.md
         echo "" >> performance-report.md
         
         echo "## Environment Caching" >> performance-report.md
         echo "| Run | Cache Hit | Setup Time | Speedup |" >> performance-report.md
         echo "|-----|-----------|------------|---------|" >> performance-report.md
-        echo "| First | ${{ needs.environment-caching.outputs.first-cache-hit }} | ${{ needs.environment-caching.outputs.first-run-time }}s | - |" >> performance-report.md
-        echo "| Second | ${{ needs.environment-caching.outputs.second-cache-hit }} | ${{ needs.environment-caching.outputs.second-run-time }}s | $(powershell -Command "if (${{ needs.environment-caching.outputs.first-run-time }} -gt 0) { [math]::Round((${{ needs.environment-caching.outputs.first-run-time }} / ${{ needs.environment-caching.outputs.second-run-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
+        $first_run = Get-SafeDouble '${{ needs.environment-caching.outputs.first-run-time }}'
+        $second_run = Get-SafeDouble '${{ needs.environment-caching.outputs.second-run-time }}'
+        $env_cache_speedup = if ($second_run -gt 0) { [math]::Round(($first_run / $second_run), 1) } else { 'N/A' }
+        echo "| First | ${{ needs.environment-caching.outputs.first-cache-hit }} | ${first_run}s | - |" >> performance-report.md
+        echo "| Second | ${{ needs.environment-caching.outputs.second-cache-hit }} | ${second_run}s | ${env_cache_speedup}x |" >> performance-report.md
         echo "" >> performance-report.md
         
         echo "## Summary" >> performance-report.md
-        echo "- **Fastest Base Setup:** $(powershell -Command "if ([double]'${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}' -lt [double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}') { 'Runner Conda' } else { 'Latest Miniconda' }")" >> performance-report.md
-        echo "- **Cache Benefit:** $(powershell -Command "if ([double]'${{ needs.caching-performance.outputs.without-cache-time }}' -gt 0) { [math]::Round((([double]'${{ needs.caching-performance.outputs.without-cache-time }}' - [double]'${{ needs.caching-performance.outputs.with-cache-time }}') / [double]'${{ needs.caching-performance.outputs.without-cache-time }}' * 100), 1) } else { 0 }")% faster" >> performance-report.md
-        echo "- **Fastest Solver:** $(powershell -Command "$default=[double]'${{ needs.solver-optimization-proof.outputs.default-solver-time }}'; $libmamba=[double]'${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}'; $mamba=[double]'${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}'; $mamba_v1=[double]'${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}'; $min_time = [math]::Min([math]::Min([math]::Min($default, $libmamba), $mamba), $mamba_v1); if ($min_time -eq $mamba_v1) { 'Mamba v1' } elseif ($min_time -eq $mamba) { 'Mamba (latest)' } elseif ($min_time -eq $libmamba) { 'Libmamba' } else { 'Default' }")" >> performance-report.md
-        echo "- **Drive Impact:** $(powershell -Command "if ([double]'${{ needs.drive-optimization-proof.outputs.c-drive-time }}' -lt [double]'${{ needs.drive-optimization-proof.outputs.d-drive-time }}') { 'C: drive faster' } else { 'D: drive faster' }")" >> performance-report.md
-      shell: pwsh
+        
+        # Determine fastest base setup
+        $fastest_base = if ($latest_bash_creation -lt $runner_bash_creation -and $latest_bash_creation -gt 0) { 'Latest Miniconda' } else { 'Runner Conda' }
+        echo "- **Fastest Base Setup:** $fastest_base" >> performance-report.md
+        
+        # Cache benefit calculation
+        $cache_benefit = if ($without_cache -gt 0 -and $with_cache -gt 0) {
+            [math]::Round((($without_cache - $with_cache) / $without_cache * 100), 1)
+        } else { 0 }
+        echo "- **Cache Benefit:** ${cache_benefit}% faster" >> performance-report.md
+        
+        # Determine fastest solver
+        $solver_times = @{
+            'Default' = $default_solver
+            'Libmamba' = $libmamba_solver  
+            'Mamba' = $mamba_solver
+            'Mamba v1' = $mamba_v1_solver
+        }
+        $fastest_solver = ($solver_times.GetEnumerator() | Where-Object { $_.Value -gt 0 } | Sort-Object Value | Select-Object -First 1).Name
+        if (-not $fastest_solver) { $fastest_solver = 'Unable to determine' }
+        echo "- **Fastest Solver:** $fastest_solver" >> performance-report.md
+        
+        # Drive impact
+        $drive_impact = if ($c_drive -lt $d_drive) { 'C: drive faster' } else { 'D: drive faster' }
+        echo "- **Drive Impact:** $drive_impact" >> performance-report.md
+        
+        echo "- **Fastest Shell (Runner Conda):** $(if ($runner_bash_total -le $runner_pwsh_total -and $runner_bash_total -le $runner_cmd_total -and $runner_bash_total -gt 0) { 'bash' } elseif ($runner_pwsh_total -le $runner_cmd_total -and $runner_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
+        echo "- **Fastest Shell (Latest Miniconda):** $(if ($latest_bash_total -le $latest_pwsh_total -and $latest_bash_total -le $latest_cmd_total -and $latest_bash_total -gt 0) { 'bash' } elseif ($latest_pwsh_total -le $latest_cmd_total -and $latest_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
 
     - name: Upload Performance Report
       uses: actions/upload-artifact@v4
@@ -521,19 +759,33 @@ jobs:
         path: performance-report.md
 
     - name: Display Results Summary
+      shell: pwsh
       run: |
-        echo "=== PERFORMANCE RESULTS ==="
-        echo "Runner Conda: ${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}s creation"
-        echo "Latest Miniconda: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}s creation"
+        echo "=== COMPREHENSIVE PERFORMANCE RESULTS ==="
+        echo ""
+        echo "SHELL PERFORMANCE:"
+        echo "Runner Conda - Bash: ${{ needs.bundled-vs-latest.outputs.runner-conda-bash-creation }}s creation"
+        echo "Runner Conda - PowerShell: ${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-creation }}s creation"
+        echo "Runner Conda - CMD: ${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-creation }}s creation"
+        echo "Latest Miniconda - Bash: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-creation }}s creation"
+        echo "Latest Miniconda - PowerShell: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-creation }}s creation"
+        echo "Latest Miniconda - CMD: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-creation }}s creation"
+        echo ""
+        echo "CACHING PERFORMANCE:"
         echo "Without Cache: ${{ needs.caching-performance.outputs.without-cache-time }}s"
         echo "With Cache: ${{ needs.caching-performance.outputs.with-cache-time }}s"
+        echo ""
+        echo "SOLVER PERFORMANCE:"
         echo "Default Solver: ${{ needs.solver-optimization-proof.outputs.default-solver-time }}s"
         echo "Libmamba Solver: ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}s"
         echo "Mamba Solver: ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}s"
         echo "Mamba v1 Solver: ${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}s"
+        echo ""
+        echo "DRIVE PERFORMANCE:"
         echo "C: Drive: ${{ needs.drive-optimization-proof.outputs.c-drive-time }}s"
         echo "D: Drive: ${{ needs.drive-optimization-proof.outputs.d-drive-time }}s"
-        echo "Env Cache First: ${{ needs.environment-caching.outputs.first-run-time }}s"
-        echo "Env Cache Second: ${{ needs.environment-caching.outputs.second-run-time }}s"
-      shell: pwsh
+        echo ""
+        echo "ENVIRONMENT CACHING:"
+        echo "First Run: ${{ needs.environment-caching.outputs.first-run-time }}s (Cache hit: ${{ needs.environment-caching.outputs.first-cache-hit }})"
+        echo "Second Run: ${{ needs.environment-caching.outputs.second-run-time }}s (Cache hit: ${{ needs.environment-caching.outputs.second-cache-hit }})"
 
