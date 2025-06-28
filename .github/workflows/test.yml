@@ -252,6 +252,123 @@ jobs:
         }
         conda info
 
+  integrated-environment-setup:
+    name: Integrated Environment Setup (${{ matrix.shell-type }})
+    runs-on: windows-latest
+    outputs:
+      integrated-bash-setup: ${{ steps.integrated-bash-results.outputs.setup-time }}
+      integrated-pwsh-setup: ${{ steps.integrated-pwsh-results.outputs.setup-time }}
+      integrated-cmd-setup: ${{ steps.integrated-cmd-results.outputs.setup-time }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shell-type: [bash, pwsh, cmd]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Start Integrated Setup Timing
+      shell: pwsh
+      run: |
+        echo "=== Starting integrated environment setup timing with ${{ matrix.shell-type }} shell ==="
+        echo "INTEGRATED_START_TIME=$(powershell -Command "[System.DateTime]::Now.Ticks")" >> $env:GITHUB_ENV
+
+    - name: Setup Miniconda with Integrated Environment (Bash)
+      if: matrix.shell-type == 'bash'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        activate-environment: integrated-test-env-bash
+        environment-file: environment.yml
+        auto-activate-base: false
+
+    - name: Setup Miniconda with Integrated Environment (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        activate-environment: integrated-test-env-pwsh
+        environment-file: environment.yml
+        auto-activate-base: false
+
+    - name: Setup Miniconda with Integrated Environment (CMD)
+      if: matrix.shell-type == 'cmd'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        activate-environment: integrated-test-env-cmd
+        environment-file: environment.yml
+        auto-activate-base: false
+
+    - name: Calculate Integrated Setup Time
+      shell: pwsh
+      run: |
+        $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        $duration = powershell -Command "($end_time - $env:INTEGRATED_START_TIME) / 10000000"
+        $formatted_duration = [math]::Round($duration, 1)
+        echo "Integrated setup with ${{ matrix.shell-type }} took: $formatted_duration seconds"
+        echo "INTEGRATED_SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+    - name: Test Integrated Environment (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing integrated environment with bash ==="
+        echo "Active environment: $CONDA_DEFAULT_ENV"
+        python -c "import numpy, pandas, requests, pytest; print('Integrated environment working correctly')"
+        conda list
+        conda info
+
+    - name: Test Integrated Environment (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
+      run: |
+        echo "=== Testing integrated environment with pwsh ==="
+        echo "Active environment: $env:CONDA_DEFAULT_ENV"
+        python -c "import numpy, pandas, requests, pytest; print('Integrated environment working correctly')"
+        conda list
+        conda info
+
+    - name: Test Integrated Environment (CMD)
+      if: matrix.shell-type == 'cmd'
+      shell: cmd /C CALL {0}
+      run: |
+        echo === Testing integrated environment with cmd ===
+        echo Active environment: %CONDA_DEFAULT_ENV%
+        python -c "import numpy, pandas, requests, pytest; print('Integrated environment working correctly')"
+        conda list
+        conda info
+
+    - name: Set Integrated Bash Outputs
+      if: matrix.shell-type == 'bash'
+      id: integrated-bash-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:INTEGRATED_SETUP_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Integrated PowerShell Outputs
+      if: matrix.shell-type == 'pwsh'
+      id: integrated-pwsh-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:INTEGRATED_SETUP_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Integrated CMD Outputs
+      if: matrix.shell-type == 'cmd'
+      id: integrated-cmd-results
+      shell: pwsh
+      run: |
+        echo "setup-time=$env:INTEGRATED_SETUP_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Report Integrated Setup Results
+      shell: pwsh
+      run: |
+        echo "=== INTEGRATED ENVIRONMENT SETUP RESULTS ==="
+        echo "Shell Type: ${{ matrix.shell-type }}"
+        echo "Total Setup Time (Miniconda + Environment): $env:INTEGRATED_SETUP_TIME seconds"
+        echo "This includes both Miniconda installation and environment creation in one step"
+
   caching-performance:
     name: Caching Performance (${{ matrix.cache-enabled }})
     runs-on: windows-latest
@@ -601,7 +718,7 @@ jobs:
   performance-summary:
     name: Performance Summary
     runs-on: windows-latest
-    needs: [bundled-vs-latest, caching-performance, solver-optimization-proof, drive-optimization-proof, environment-caching]
+    needs: [bundled-vs-latest, caching-performance, solver-optimization-proof, drive-optimization-proof, environment-caching, integrated-environment-setup]
     if: always()
     
     steps:
@@ -672,6 +789,42 @@ jobs:
         echo "| Latest Miniconda | bash | ${latest_bash_setup}s | ${latest_bash_creation}s | ${latest_bash_deletion}s | ${latest_bash_total}s |" >> performance-report.md
         echo "| Latest Miniconda | pwsh | ${latest_pwsh_setup}s | ${latest_pwsh_creation}s | ${latest_pwsh_deletion}s | ${latest_pwsh_total}s |" >> performance-report.md
         echo "| Latest Miniconda | cmd | ${latest_cmd_setup}s | ${latest_cmd_creation}s | ${latest_cmd_deletion}s | ${latest_cmd_total}s |" >> performance-report.md
+        echo "" >> performance-report.md
+        
+        echo "## Integrated Environment Setup vs Two-Step Approach" >> performance-report.md
+        echo "| Approach | Shell | Setup Time | vs Latest Miniconda Two-Step |" >> performance-report.md
+        echo "|----------|-------|------------|------------------------------|" >> performance-report.md
+        
+        $integrated_bash = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-bash-setup }}'
+        $integrated_pwsh = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-pwsh-setup }}'  
+        $integrated_cmd = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-cmd-setup }}'
+        
+        # Compare with Latest Miniconda two-step approach (setup + creation, excluding deletion)
+        $latest_bash_two_step = [math]::Round(($latest_bash_setup + $latest_bash_creation), 1)
+        $latest_pwsh_two_step = [math]::Round(($latest_pwsh_setup + $latest_pwsh_creation), 1)
+        $latest_cmd_two_step = [math]::Round(($latest_cmd_setup + $latest_cmd_creation), 1)
+        
+        $integrated_bash_vs_two_step = if ($integrated_bash -gt 0 -and $latest_bash_two_step -gt 0) { 
+            $ratio = [math]::Round(($latest_bash_two_step / $integrated_bash), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        $integrated_pwsh_vs_two_step = if ($integrated_pwsh -gt 0 -and $latest_pwsh_two_step -gt 0) { 
+            $ratio = [math]::Round(($latest_pwsh_two_step / $integrated_pwsh), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        $integrated_cmd_vs_two_step = if ($integrated_cmd -gt 0 -and $latest_cmd_two_step -gt 0) { 
+            $ratio = [math]::Round(($latest_cmd_two_step / $integrated_cmd), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        echo "| Integrated | bash | ${integrated_bash}s | $integrated_bash_vs_two_step |" >> performance-report.md
+        echo "| Integrated | pwsh | ${integrated_pwsh}s | $integrated_pwsh_vs_two_step |" >> performance-report.md
+        echo "| Integrated | cmd | ${integrated_cmd}s | $integrated_cmd_vs_two_step |" >> performance-report.md
+        echo "| Two-Step | bash | ${latest_bash_two_step}s | - |" >> performance-report.md
+        echo "| Two-Step | pwsh | ${latest_pwsh_two_step}s | - |" >> performance-report.md
+        echo "| Two-Step | cmd | ${latest_cmd_two_step}s | - |" >> performance-report.md
         echo "" >> performance-report.md
         
         echo "## Package Caching Impact" >> performance-report.md
@@ -749,6 +902,16 @@ jobs:
         $drive_impact = if ($c_drive -lt $d_drive) { 'C: drive faster' } else { 'D: drive faster' }
         echo "- **Drive Impact:** $drive_impact" >> performance-report.md
         
+        # Best integrated approach
+        $integrated_times = @{
+            'bash' = $integrated_bash
+            'pwsh' = $integrated_pwsh
+            'cmd' = $integrated_cmd
+        }
+        $fastest_integrated = ($integrated_times.GetEnumerator() | Where-Object { $_.Value -gt 0 } | Sort-Object Value | Select-Object -First 1).Name
+        if (-not $fastest_integrated) { $fastest_integrated = 'Unable to determine' }
+        echo "- **Fastest Integrated Setup:** $fastest_integrated" >> performance-report.md
+        
         echo "- **Fastest Shell (Runner Conda):** $(if ($runner_bash_total -le $runner_pwsh_total -and $runner_bash_total -le $runner_cmd_total -and $runner_bash_total -gt 0) { 'bash' } elseif ($runner_pwsh_total -le $runner_cmd_total -and $runner_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
         echo "- **Fastest Shell (Latest Miniconda):** $(if ($latest_bash_total -le $latest_pwsh_total -and $latest_bash_total -le $latest_cmd_total -and $latest_bash_total -gt 0) { 'bash' } elseif ($latest_pwsh_total -le $latest_cmd_total -and $latest_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
 
@@ -770,6 +933,11 @@ jobs:
         echo "Latest Miniconda - Bash: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-creation }}s creation"
         echo "Latest Miniconda - PowerShell: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-creation }}s creation"
         echo "Latest Miniconda - CMD: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-creation }}s creation"
+        echo ""
+        echo "INTEGRATED ENVIRONMENT SETUP:"
+        echo "Integrated - Bash: ${{ needs.integrated-environment-setup.outputs.integrated-bash-setup }}s total"
+        echo "Integrated - PowerShell: ${{ needs.integrated-environment-setup.outputs.integrated-pwsh-setup }}s total"
+        echo "Integrated - CMD: ${{ needs.integrated-environment-setup.outputs.integrated-cmd-setup }}s total"
         echo ""
         echo "CACHING PERFORMANCE:"
         echo "Without Cache: ${{ needs.caching-performance.outputs.without-cache-time }}s"
