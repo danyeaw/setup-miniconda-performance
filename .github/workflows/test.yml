@@ -109,7 +109,6 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniconda-version: "latest"
-        activate-environment: cache-test
         pkgs-dirs: ${{ matrix.cache-enabled == 'with-cache' && '~/conda_pkgs_dir' || '' }}
         use-only-tar-bz2: ${{ matrix.cache-enabled == 'with-cache' }}
         auto-activate-base: false
@@ -161,7 +160,6 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniconda-version: "latest"
-        activate-environment: solver-test
         auto-activate-base: false
 
     - name: Setup Miniconda - Libmamba Solver
@@ -171,7 +169,6 @@ jobs:
         miniconda-version: "latest"
         auto-update-conda: true
         conda-solver: libmamba
-        activate-environment: solver-test
         auto-activate-base: false
 
     - name: Setup Miniconda - Mamba
@@ -182,7 +179,6 @@ jobs:
         auto-update-conda: true
         mamba-version: "*"
         channels: conda-forge,defaults
-        activate-environment: solver-test
         auto-activate-base: false
 
     - name: Time Solver Performance
@@ -249,7 +245,6 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniconda-version: "latest"
-        activate-environment: drive-test
         pkgs-dirs: ${{ env.CACHE_PATH }}
         use-only-tar-bz2: true
         auto-activate-base: false
@@ -301,7 +296,6 @@ jobs:
       uses: conda-incubator/setup-miniconda@v3
       with:
         miniforge-version: latest
-        activate-environment: test-env
         auto-activate-base: false
 
     - name: Cache Conda environment
@@ -322,7 +316,7 @@ jobs:
         
         if [ "${{ steps.cache.outputs.cache-hit }}" != "true" ]; then
           echo "Cache miss - creating environment"
-          mamba env update -n test-env -f environment.yml
+          mamba env create -n test-env -f environment.yml
         else
           echo "Cache hit - environment should be ready"
         fi
