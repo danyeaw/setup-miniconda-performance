@@ -98,7 +98,7 @@ jobs:
 
     - name: Cache conda packages
       if: matrix.cache-enabled == 'with-cache'
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/conda_pkgs_dir
         key: windows-cache-test-${{ env.CACHE_NUMBER }}-${{ hashFiles('environment.yml') }}
@@ -237,7 +237,7 @@ jobs:
       shell: pwsh
 
     - name: Cache conda packages
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         enableCrossOsArchive: ${{ matrix.drive == 'd-drive' }}
         path: ${{ env.CACHE_PATH }}
@@ -305,7 +305,7 @@ jobs:
         auto-activate-base: false
 
     - name: Cache Conda environment
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ${{ env.CONDA }}/envs
         key: conda-windows--x64--${{ steps.get-date.outputs.today }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ matrix.cache-run }}
