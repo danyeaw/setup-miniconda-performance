@@ -176,7 +176,6 @@ jobs:
       default-solver-time: ${{ steps.default-results.outputs.solver-time }}
       libmamba-solver-time: ${{ steps.libmamba-results.outputs.solver-time }}
       mamba-solver-time: ${{ steps.mamba-results.outputs.solver-time }}
-    needs: bundled-vs-latest
     defaults:
       run:
         shell: bash -el {0}
@@ -267,7 +266,6 @@ jobs:
     outputs:
       c-drive-time: ${{ steps.c-drive-results.outputs.drive-time }}
       d-drive-time: ${{ steps.d-drive-results.outputs.drive-time }}
-    needs: caching-performance
     defaults:
       run:
         shell: bash -el {0}
