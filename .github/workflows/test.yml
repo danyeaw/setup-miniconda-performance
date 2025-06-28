@@ -74,8 +74,16 @@ jobs:
         echo "Environment deletion took: ${duration} seconds"
         echo "DELETION_TIME=${duration}" >> $GITHUB_ENV
 
-    - name: Set Job Outputs
-      id: ${{ matrix.setup-type }}-results
+    - name: Set Runner Conda Outputs
+      if: matrix.setup-type == 'runner-conda'
+      id: runner-conda-results
+      run: |
+        echo "creation-time=${CREATION_TIME}" >> $GITHUB_OUTPUT
+        echo "deletion-time=${DELETION_TIME}" >> $GITHUB_OUTPUT
+
+    - name: Set Latest Miniconda Outputs
+      if: matrix.setup-type == 'latest-miniconda'
+      id: latest-miniconda-results
       run: |
         echo "creation-time=${CREATION_TIME}" >> $GITHUB_OUTPUT
         echo "deletion-time=${DELETION_TIME}" >> $GITHUB_OUTPUT
@@ -140,8 +148,15 @@ jobs:
         conda activate cache-perf-test
         python -c "import numpy, pandas, requests, pytest; print('All packages working')"
 
-    - name: Set Job Outputs
-      id: ${{ matrix.cache-enabled }}-results
+    - name: Set Without Cache Outputs
+      if: matrix.cache-enabled == 'without-cache'
+      id: without-cache-results
+      run: |
+        echo "install-time=${INSTALL_TIME}" >> $GITHUB_OUTPUT
+
+    - name: Set With Cache Outputs
+      if: matrix.cache-enabled == 'with-cache'
+      id: with-cache-results
       run: |
         echo "install-time=${INSTALL_TIME}" >> $GITHUB_OUTPUT
 
@@ -213,8 +228,21 @@ jobs:
         echo "Solver installation took: ${duration} seconds"
         echo "SOLVER_TIME=${duration}" >> $GITHUB_ENV
 
-    - name: Set Job Outputs
-      id: ${{ matrix.solver }}-results
+    - name: Set Default Solver Outputs
+      if: matrix.solver == 'default'
+      id: default-results
+      run: |
+        echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+
+    - name: Set Libmamba Solver Outputs
+      if: matrix.solver == 'libmamba'
+      id: libmamba-results
+      run: |
+        echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+
+    - name: Set Mamba Solver Outputs
+      if: matrix.solver == 'mamba'
+      id: mamba-results
       run: |
         echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
 
@@ -289,8 +317,15 @@ jobs:
         echo "Drive installation took: ${duration} seconds"
         echo "DRIVE_TIME=${duration}" >> $GITHUB_ENV
 
-    - name: Set Job Outputs
-      id: ${{ matrix.drive }}-results
+    - name: Set C Drive Outputs
+      if: matrix.drive == 'c-drive'
+      id: c-drive-results
+      run: |
+        echo "drive-time=${DRIVE_TIME}" >> $GITHUB_OUTPUT
+
+    - name: Set D Drive Outputs
+      if: matrix.drive == 'd-drive'
+      id: d-drive-results
       run: |
         echo "drive-time=${DRIVE_TIME}" >> $GITHUB_OUTPUT
 
@@ -363,8 +398,16 @@ jobs:
         echo "Environment setup took: ${duration} seconds"
         echo "ENV_CACHE_TIME=${duration}" >> $GITHUB_ENV
 
-    - name: Set Job Outputs
-      id: ${{ matrix.cache-run }}-results
+    - name: Set First Run Outputs
+      if: matrix.cache-run == 'first'
+      id: first-results
+      run: |
+        echo "env-time=${ENV_CACHE_TIME}" >> $GITHUB_OUTPUT
+        echo "cache-hit=${{ steps.cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
+
+    - name: Set Second Run Outputs
+      if: matrix.cache-run == 'second'
+      id: second-results
       run: |
         echo "env-time=${ENV_CACHE_TIME}" >> $GITHUB_OUTPUT
         echo "cache-hit=${{ steps.cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
@@ -464,3 +507,4 @@ jobs:
         echo "Env Cache First: ${{ needs.environment-caching.outputs.first-run-time }}s"
         echo "Env Cache Second: ${{ needs.environment-caching.outputs.second-run-time }}s"
       shell: pwsh
+
