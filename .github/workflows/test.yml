@@ -260,6 +260,142 @@ jobs:
         }
         conda info
 
+  lockfile-performance:
+    name: Lockfile Performance (${{ matrix.shell-type }})
+    runs-on: windows-latest
+    outputs:
+      lockfile-bash-time: ${{ steps.lockfile-bash-results.outputs.lockfile-time }}
+      lockfile-pwsh-time: ${{ steps.lockfile-pwsh-results.outputs.lockfile-time }}
+      lockfile-cmd-time: ${{ steps.lockfile-cmd-results.outputs.lockfile-time }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shell-type: [bash, pwsh, cmd]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Miniconda for Lockfile Test
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        auto-activate-base: false
+
+    - name: Time Lockfile Environment Creation (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing lockfile environment creation with bash shell ==="
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        conda env create --name lockfile-test-bash --file environment-windows.conda.lock
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+        echo "Lockfile environment creation took: ${formatted_duration} seconds"
+        echo "LOCKFILE_TIME=${formatted_duration}" >> $GITHUB_ENV
+
+    - name: Time Lockfile Environment Creation (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
+      run: |
+        echo "=== Testing lockfile environment creation with pwsh shell ==="
+        $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        
+        conda env create --name lockfile-test-pwsh --file environment-windows.conda.lock
+        
+        $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+        $duration = powershell -Command "($end_time - $start_time) / 10000000"
+        $formatted_duration = [math]::Round($duration, 1)
+        echo "Lockfile environment creation took: $formatted_duration seconds"
+        echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+    - name: Time Lockfile Environment Creation (CMD)
+      if: matrix.shell-type == 'cmd'
+      run: |
+        echo === Testing lockfile environment creation with cmd shell ===
+        $start_time = [System.DateTime]::Now.Ticks
+        
+        conda env create --name lockfile-test-cmd --file environment-windows.conda.lock
+        
+        $end_time = [System.DateTime]::Now.Ticks
+        $duration = ($end_time - $start_time) / 10000000
+        $formatted_duration = [math]::Round($duration, 1)
+        echo "Lockfile environment creation took: $formatted_duration seconds"
+        echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Test Lockfile Environment (Bash)
+      if: matrix.shell-type == 'bash'
+      shell: bash -el {0}
+      run: |
+        conda activate lockfile-test-bash
+        echo "=== Testing lockfile environment with bash ==="
+        python -c "import numpy, pandas, requests, pytest; print('Lockfile environment working correctly')"
+        echo "Package count in lockfile environment: $(conda list | wc -l)"
+        echo "Python version: $(python --version)"
+
+    - name: Test Lockfile Environment (PowerShell)
+      if: matrix.shell-type == 'pwsh'
+      shell: pwsh
+      run: |
+        conda activate lockfile-test-pwsh
+        echo "=== Testing lockfile environment with pwsh ==="
+        python -c "import numpy, pandas, requests, pytest; print('Lockfile environment working correctly')"
+        $packageCount = (conda list | Measure-Object -Line).Lines
+        echo "Package count in lockfile environment: $packageCount"
+        echo "Python version: $(python --version)"
+
+    - name: Test Lockfile Environment (CMD)
+      if: matrix.shell-type == 'cmd'
+      shell: cmd /C CALL {0}
+      run: |
+        conda activate lockfile-test-cmd
+        echo === Testing lockfile environment with cmd ===
+        python -c "import numpy, pandas, requests, pytest; print('Lockfile environment working correctly')"
+        echo Python version:
+        python --version
+
+    - name: Set Lockfile Bash Outputs
+      if: matrix.shell-type == 'bash'
+      id: lockfile-bash-results
+      shell: pwsh
+      run: |
+        echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Lockfile PowerShell Outputs
+      if: matrix.shell-type == 'pwsh'
+      id: lockfile-pwsh-results
+      shell: pwsh
+      run: |
+        echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Set Lockfile CMD Outputs
+      if: matrix.shell-type == 'cmd'
+      id: lockfile-cmd-results
+      shell: pwsh
+      run: |
+        echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
+
+    - name: Report Lockfile Performance Results
+      shell: pwsh
+      run: |
+        echo "=== LOCKFILE PERFORMANCE RESULTS ==="
+        echo "Shell Type: ${{ matrix.shell-type }}"
+        echo "Lockfile Time: $env:LOCKFILE_TIME seconds"
+        echo "This tests pre-generated Windows lockfile vs standard environment.yml"
+        echo "Lockfile should skip dependency resolution for much faster installs"
+
+    - name: Cleanup
+      shell: bash -el {0}
+      run: |
+        # Cleanup test environments
+        conda env remove -n lockfile-test-bash -y 2>/dev/null || true
+        conda env remove -n lockfile-test-pwsh -y 2>/dev/null || true  
+        conda env remove -n lockfile-test-cmd -y 2>/dev/null || true
+
   existing-environment-update:
     name: Update Existing Environment (${{ matrix.shell-type }})
     runs-on: windows-latest
@@ -851,7 +987,7 @@ jobs:
   performance-summary:
     name: Performance Summary
     runs-on: windows-latest
-    needs: [bundled-vs-latest, caching-performance, solver-optimization-proof, drive-optimization-proof, environment-caching, integrated-environment-setup, existing-environment-update]
+    needs: [bundled-vs-latest, caching-performance, solver-optimization-proof, drive-optimization-proof, environment-caching, integrated-environment-setup, existing-environment-update, lockfile-performance]
     if: always()
     
     steps:
@@ -992,6 +1128,38 @@ jobs:
         echo "| Create New | cmd | ${latest_cmd_creation}s | - |" >> performance-report.md
         echo "" >> performance-report.md
         
+        echo "## Lockfile vs Standard Environment Creation" >> performance-report.md
+        echo "| Approach | Shell | Time | vs Latest Miniconda Creation |" >> performance-report.md
+        echo "|----------|-------|------|------------------------------|" >> performance-report.md
+        
+        $lockfile_bash = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-bash-time }}'
+        $lockfile_pwsh = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-pwsh-time }}'  
+        $lockfile_cmd = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-cmd-time }}'
+        
+        # Compare with Latest Miniconda environment creation times
+        $lockfile_bash_vs_creation = if ($lockfile_bash -gt 0 -and $latest_bash_creation -gt 0) { 
+            $ratio = [math]::Round(($latest_bash_creation / $lockfile_bash), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        $lockfile_pwsh_vs_creation = if ($lockfile_pwsh -gt 0 -and $latest_pwsh_creation -gt 0) { 
+            $ratio = [math]::Round(($latest_pwsh_creation / $lockfile_pwsh), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        $lockfile_cmd_vs_creation = if ($lockfile_cmd -gt 0 -and $latest_cmd_creation -gt 0) { 
+            $ratio = [math]::Round(($latest_cmd_creation / $lockfile_cmd), 1)
+            if ($ratio -gt 1) { "${ratio}x faster" } else { "$([math]::Round((1 / $ratio), 1))x slower" }
+        } else { 'N/A' }
+        
+        echo "| Lockfile | bash | ${lockfile_bash}s | $lockfile_bash_vs_creation |" >> performance-report.md
+        echo "| Lockfile | pwsh | ${lockfile_pwsh}s | $lockfile_pwsh_vs_creation |" >> performance-report.md
+        echo "| Lockfile | cmd | ${lockfile_cmd}s | $lockfile_cmd_vs_creation |" >> performance-report.md
+        echo "| Standard | bash | ${latest_bash_creation}s | - |" >> performance-report.md
+        echo "| Standard | pwsh | ${latest_pwsh_creation}s | - |" >> performance-report.md
+        echo "| Standard | cmd | ${latest_cmd_creation}s | - |" >> performance-report.md
+        echo "" >> performance-report.md
+        
         echo "## Package Caching Impact" >> performance-report.md
         echo "| Cache Mode | Installation Time | Speedup |" >> performance-report.md
         echo "|------------|-------------------|---------|" >> performance-report.md
@@ -1103,6 +1271,32 @@ jobs:
                 "Create ${slowdown}x faster"
             }
         } else { 'Unable to determine' }
+        # Best lockfile approach
+        $lockfile_times = @{
+            'bash' = $lockfile_bash
+            'pwsh' = $lockfile_pwsh
+            'cmd' = $lockfile_cmd
+        }
+        $fastest_lockfile = ($lockfile_times.GetEnumerator() | Where-Object { $_.Value -gt 0 } | Sort-Object Value | Select-Object -First 1).Name
+        if (-not $fastest_lockfile) { $fastest_lockfile = 'Unable to determine' }
+        echo "- **Fastest Lockfile Setup:** $fastest_lockfile" >> performance-report.md
+        
+        # Determine if lockfiles are generally faster than standard environments
+        $avg_lockfile_time = if ($lockfile_bash -gt 0 -and $lockfile_pwsh -gt 0 -and $lockfile_cmd -gt 0) {
+            [math]::Round((($lockfile_bash + $lockfile_pwsh + $lockfile_cmd) / 3), 1)
+        } elseif ($lockfile_bash -gt 0 -and $lockfile_pwsh -gt 0) {
+            [math]::Round((($lockfile_bash + $lockfile_pwsh) / 2), 1)
+        } else { 0 }
+        $lockfile_vs_standard_benefit = if ($avg_lockfile_time -gt 0 -and $avg_creation_time -gt 0) {
+            if ($avg_creation_time -gt $avg_lockfile_time) {
+                $speedup = [math]::Round(($avg_creation_time / $avg_lockfile_time), 1)
+                "Lockfile ${speedup}x faster"
+            } else {
+                $slowdown = [math]::Round(($avg_lockfile_time / $avg_creation_time), 1)
+                "Standard ${slowdown}x faster"
+            }
+        } else { 'Unable to determine' }
+        echo "- **Lockfile vs Standard:** $lockfile_vs_standard_benefit" >> performance-report.md
         echo "- **Update vs Create:** $update_vs_create_benefit" >> performance-report.md
         
         echo "- **Fastest Shell (Runner Conda):** $(if ($runner_bash_total -le $runner_pwsh_total -and $runner_bash_total -le $runner_cmd_total -and $runner_bash_total -gt 0) { 'bash' } elseif ($runner_pwsh_total -le $runner_cmd_total -and $runner_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
@@ -1136,6 +1330,11 @@ jobs:
         echo "Update Existing - Bash: ${{ needs.existing-environment-update.outputs.update-bash-time }}s"
         echo "Update Existing - PowerShell: ${{ needs.existing-environment-update.outputs.update-pwsh-time }}s"
         echo "Update Existing - CMD: ${{ needs.existing-environment-update.outputs.update-cmd-time }}s"
+        echo ""
+        echo "LOCKFILE PERFORMANCE:"
+        echo "Lockfile - Bash: ${{ needs.lockfile-performance.outputs.lockfile-bash-time }}s"
+        echo "Lockfile - PowerShell: ${{ needs.lockfile-performance.outputs.lockfile-pwsh-time }}s"
+        echo "Lockfile - CMD: ${{ needs.lockfile-performance.outputs.lockfile-cmd-time }}s"
         echo ""
         echo "CACHING PERFORMANCE:"
         echo "Without Cache: ${{ needs.caching-performance.outputs.without-cache-time }}s"
