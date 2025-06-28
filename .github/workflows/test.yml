@@ -190,13 +190,14 @@ jobs:
       default-solver-time: ${{ steps.default-results.outputs.solver-time }}
       libmamba-solver-time: ${{ steps.libmamba-results.outputs.solver-time }}
       mamba-solver-time: ${{ steps.mamba-results.outputs.solver-time }}
+      mamba-v1-solver-time: ${{ steps.mamba-v1-results.outputs.solver-time }}
     defaults:
       run:
         shell: bash -el {0}
     strategy:
       fail-fast: false
       matrix:
-        solver: [default, libmamba, mamba]
+        solver: [default, libmamba, mamba, mamba-v1]
     
     steps:
     - name: Checkout
@@ -225,12 +226,21 @@ jobs:
         mamba-version: "*"
         channels: conda-forge,defaults
 
+    - name: Setup Miniforge - Mamba v1
+      if: matrix.solver == 'mamba-v1'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: "24.11.3-2"  # For Mamba 1.5.12
+        auto-update-conda: false
+        use-mamba: true
+        channels: conda-forge,defaults
+
     - name: Time Solver Performance
       run: |
         echo "=== Testing ${{ matrix.solver }} solver performance ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
-        if [ "${{ matrix.solver }}" = "mamba" ]; then
+        if [ "${{ matrix.solver }}" = "mamba" ] || [ "${{ matrix.solver }}" = "mamba-v1" ]; then
           mamba env create -f environment.yml -n solver-perf-test
         else
           conda env create -f environment.yml -n solver-perf-test
@@ -259,6 +269,12 @@ jobs:
       run: |
         echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
 
+    - name: Set Mamba v1 Solver Outputs
+      if: matrix.solver == 'mamba-v1'
+      id: mamba-v1-results
+      run: |
+        echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+
     - name: Report Solver Optimization Results
       run: |
         echo "=== SOLVER OPTIMIZATION RESULTS ==="
@@ -268,7 +284,7 @@ jobs:
 
     - name: Cleanup
       run: |
-        if [ "${{ matrix.solver }}" = "mamba" ]; then
+        if [ "${{ matrix.solver }}" = "mamba" ] || [ "${{ matrix.solver }}" = "mamba-v1" ]; then
           mamba env remove -n solver-perf-test -y
         else
           conda env remove -n solver-perf-test -y
@@ -385,10 +401,10 @@ jobs:
     - name: Cache Conda environment
       uses: actions/cache@v4
       with:
-        path: ${{ env.CONDA }}/envs
-        key: conda-windows--x64--${{ steps.get-date.outputs.today }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ matrix.cache-run }}
+        path: ${{ env.CONDA }}/envs/test-env
+        key: conda-env-windows-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}
         restore-keys: |
-          conda-windows--x64--${{ steps.get-date.outputs.today }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-
+          conda-env-windows-${{ hashFiles('environment.yml') }}-
       id: cache
 
     - name: Time Environment Update (Cache Miss/Hit)
@@ -458,8 +474,8 @@ jobs:
         echo "## Runner vs Latest Miniconda" >> performance-report.md
         echo "| Setup Type | Miniconda Setup | Environment Creation | Environment Deletion | Total Time |" >> performance-report.md
         echo "|------------|-----------------|---------------------|---------------------|------------|" >> performance-report.md
-        echo "| Runner Conda | Pre-installed | ${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}s | ${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}s | ${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}s + ${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}s |" >> performance-report.md
-        echo "| Latest Miniconda | Downloaded | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}s | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}s | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}s + ${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}s |" >> performance-report.md
+        echo "| Runner Conda | ${{ needs.bundled-vs-latest.outputs.runner-conda-setup }}s | ${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}s | ${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}s | $(powershell -Command "[double]'${{ needs.bundled-vs-latest.outputs.runner-conda-setup }}' + [double]'${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}' + [double]'${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}'")s |" >> performance-report.md
+        echo "| Latest Miniconda | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-setup }}s | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}s | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}s | $(powershell -Command "[double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-setup }}' + [double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}' + [double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}'")s |" >> performance-report.md
         echo "" >> performance-report.md
         
         echo "## Package Caching Impact" >> performance-report.md
@@ -494,7 +510,7 @@ jobs:
         echo "## Summary" >> performance-report.md
         echo "- **Fastest Base Setup:** $(powershell -Command "if ([double]'${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}' -lt [double]'${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}') { 'Runner Conda' } else { 'Latest Miniconda' }")" >> performance-report.md
         echo "- **Cache Benefit:** $(powershell -Command "if ([double]'${{ needs.caching-performance.outputs.without-cache-time }}' -gt 0) { [math]::Round((([double]'${{ needs.caching-performance.outputs.without-cache-time }}' - [double]'${{ needs.caching-performance.outputs.with-cache-time }}') / [double]'${{ needs.caching-performance.outputs.without-cache-time }}' * 100), 1) } else { 0 }")% faster" >> performance-report.md
-        echo "- **Fastest Solver:** $(powershell -Command "$default=[double]'${{ needs.solver-optimization-proof.outputs.default-solver-time }}'; $libmamba=[double]'${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}'; $mamba=[double]'${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}'; if ($mamba -lt $default -and $mamba -lt $libmamba) { 'Mamba' } elseif ($libmamba -lt $default) { 'Libmamba' } else { 'Default' }")" >> performance-report.md
+        echo "- **Fastest Solver:** $(powershell -Command "$default=[double]'${{ needs.solver-optimization-proof.outputs.default-solver-time }}'; $libmamba=[double]'${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}'; $mamba=[double]'${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}'; $mamba_v1=[double]'${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}'; $min_time = [math]::Min([math]::Min([math]::Min($default, $libmamba), $mamba), $mamba_v1); if ($min_time -eq $mamba_v1) { 'Mamba v1' } elseif ($min_time -eq $mamba) { 'Mamba (latest)' } elseif ($min_time -eq $libmamba) { 'Libmamba' } else { 'Default' }")" >> performance-report.md
         echo "- **Drive Impact:** $(powershell -Command "if ([double]'${{ needs.drive-optimization-proof.outputs.c-drive-time }}' -lt [double]'${{ needs.drive-optimization-proof.outputs.d-drive-time }}') { 'C: drive faster' } else { 'D: drive faster' }")" >> performance-report.md
       shell: pwsh
 
@@ -514,6 +530,7 @@ jobs:
         echo "Default Solver: ${{ needs.solver-optimization-proof.outputs.default-solver-time }}s"
         echo "Libmamba Solver: ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}s"
         echo "Mamba Solver: ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}s"
+        echo "Mamba v1 Solver: ${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}s"
         echo "C: Drive: ${{ needs.drive-optimization-proof.outputs.c-drive-time }}s"
         echo "D: Drive: ${{ needs.drive-optimization-proof.outputs.d-drive-time }}s"
         echo "Env Cache First: ${{ needs.environment-caching.outputs.first-run-time }}s"
