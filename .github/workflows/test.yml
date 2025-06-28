@@ -108,11 +108,30 @@ jobs:
       shell: cmd /C CALL {0}
       run: |
         echo === Testing ${{ matrix.setup-type }} setup performance with cmd shell ===
-        powershell -Command "$start_time = [System.DateTime]::Now.Ticks; echo \"$start_time\" > creation_start.txt"
+        powershell -Command "[System.DateTime]::Now.Ticks" > creation_start.txt
         
         conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}-cmd
         
-        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content creation_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment creation took: $formatted_duration seconds\"; echo \"CREATION_TIME=$formatted_duration\" >> $env:GITHUB_ENV"
+        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content creation_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment creation took: $formatted_duration seconds\"; echo \"CREATION_TIME=$formatted_duration\" | Out-File -FilePath creation_time.txt -Encoding utf8"
+        
+    - name: Set CMD Creation Time
+      if: matrix.shell-type == 'cmd'
+      shell: pwsh
+      run: |
+        if (Test-Path creation_time.txt) {
+          $creation_time_line = Get-Content creation_time.txt | Select-String "CREATION_TIME="
+          if ($creation_time_line) {
+            $creation_time = $creation_time_line.ToString().Split("=")[1]
+            echo "CREATION_TIME=$creation_time" >> $env:GITHUB_ENV
+            echo "CMD Creation time set to: $creation_time"
+          } else {
+            echo "CREATION_TIME=0" >> $env:GITHUB_ENV
+            echo "Failed to parse creation time, setting to 0"
+          }
+        } else {
+          echo "CREATION_TIME=0" >> $env:GITHUB_ENV
+          echo "Creation time file not found, setting to 0"
+        }
 
     - name: Test Environment Works (Bash)
       if: matrix.shell-type == 'bash'
@@ -173,11 +192,30 @@ jobs:
       shell: cmd /C CALL {0}
       run: |
         echo === Testing environment deletion with cmd ===
-        powershell -Command "$start_time = [System.DateTime]::Now.Ticks; echo \"$start_time\" > deletion_start.txt"
+        powershell -Command "[System.DateTime]::Now.Ticks" > deletion_start.txt
         
         conda env remove -n perf-test-${{ matrix.setup-type }}-cmd -y
         
-        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content deletion_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment deletion took: $formatted_duration seconds\"; echo \"DELETION_TIME=$formatted_duration\" >> $env:GITHUB_ENV"
+        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content deletion_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment deletion took: $formatted_duration seconds\"; echo \"DELETION_TIME=$formatted_duration\" | Out-File -FilePath deletion_time.txt -Encoding utf8"
+
+    - name: Set CMD Deletion Time
+      if: matrix.shell-type == 'cmd'
+      shell: pwsh
+      run: |
+        if (Test-Path deletion_time.txt) {
+          $deletion_time_line = Get-Content deletion_time.txt | Select-String "DELETION_TIME="
+          if ($deletion_time_line) {
+            $deletion_time = $deletion_time_line.ToString().Split("=")[1]
+            echo "DELETION_TIME=$deletion_time" >> $env:GITHUB_ENV
+            echo "CMD Deletion time set to: $deletion_time"
+          } else {
+            echo "DELETION_TIME=0" >> $env:GITHUB_ENV
+            echo "Failed to parse deletion time, setting to 0"
+          }
+        } else {
+          echo "DELETION_TIME=0" >> $env:GITHUB_ENV
+          echo "Deletion time file not found, setting to 0"
+        }
 
     # Set outputs for each combination
     - name: Set Runner Conda Bash Outputs
@@ -322,12 +360,31 @@ jobs:
       shell: cmd /C CALL {0}
       run: |
         echo === Testing existing environment update with cmd shell ===
-        powershell -Command "$start_time = [System.DateTime]::Now.Ticks; echo \"$start_time\" > update_start.txt"
+        powershell -Command "[System.DateTime]::Now.Ticks" > update_start.txt
         
         conda activate test
         conda env update --name test --file environment.yml
         
-        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content update_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment update took: $formatted_duration seconds\"; echo \"UPDATE_TIME=$formatted_duration\" >> $env:GITHUB_ENV"
+        powershell -Command "$end_time = [System.DateTime]::Now.Ticks; $start_time = Get-Content update_start.txt; $duration = ($end_time - $start_time) / 10000000; $formatted_duration = [math]::Round($duration, 1); echo \"Environment update took: $formatted_duration seconds\"; echo \"UPDATE_TIME=$formatted_duration\" | Out-File -FilePath update_time.txt -Encoding utf8"
+
+    - name: Set CMD Update Time
+      if: matrix.shell-type == 'cmd'
+      shell: pwsh
+      run: |
+        if (Test-Path update_time.txt) {
+          $update_time_line = Get-Content update_time.txt | Select-String "UPDATE_TIME="
+          if ($update_time_line) {
+            $update_time = $update_time_line.ToString().Split("=")[1]
+            echo "UPDATE_TIME=$update_time" >> $env:GITHUB_ENV
+            echo "CMD Update time set to: $update_time"
+          } else {
+            echo "UPDATE_TIME=0" >> $env:GITHUB_ENV
+            echo "Failed to parse update time, setting to 0"
+          }
+        } else {
+          echo "UPDATE_TIME=0" >> $env:GITHUB_ENV
+          echo "Update time file not found, setting to 0"
+        }
 
     - name: Test Updated Environment (Bash)
       if: matrix.shell-type == 'bash'
