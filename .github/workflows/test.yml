@@ -128,7 +128,7 @@ jobs:
     - name: Verify Installation
       run: |
         conda activate cache-perf-test
-        python -c "import numpy, pandas, requests, pytest; print('✓ All packages working')"
+        python -c "import numpy, pandas, requests, pytest; print('All packages working')"
 
     - name: Report Cache Performance Results
       run: |
