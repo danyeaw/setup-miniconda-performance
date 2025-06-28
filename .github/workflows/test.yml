@@ -47,7 +47,7 @@ jobs:
         echo "=== Testing ${{ matrix.setup-type }} setup performance ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
-        conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}
+        conda create -f environment.yml -n perf-test-${{ matrix.setup-type }}
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
@@ -118,7 +118,7 @@ jobs:
         echo "=== Testing installation ${{ matrix.cache-enabled }} ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
-        conda env create -f environment.yml -n cache-perf-test
+        conda create -f environment.yml -n cache-perf-test
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
@@ -187,9 +187,9 @@ jobs:
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
         if [ "${{ matrix.solver }}" = "mamba" ]; then
-          mamba env create -f environment.yml -n solver-perf-test
+          mamba create -f environment.yml -n solver-perf-test
         else
-          conda env create -f environment.yml -n solver-perf-test
+          conda create -f environment.yml -n solver-perf-test
         fi
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -254,7 +254,7 @@ jobs:
         echo "=== Testing ${{ matrix.drive }} performance ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
-        conda env create -f environment.yml -n drive-perf-test
+        conda create -f environment.yml -n drive-perf-test
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
@@ -316,7 +316,7 @@ jobs:
         
         if [ "${{ steps.cache.outputs.cache-hit }}" != "true" ]; then
           echo "Cache miss - creating environment"
-          mamba env create -n test-env -f environment.yml
+          conda create -n test-env -f environment.yml
         else
           echo "Cache hit - environment should be ready"
         fi
