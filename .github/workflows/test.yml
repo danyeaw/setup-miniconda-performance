@@ -17,6 +17,11 @@ jobs:
   bundled-vs-latest:
     name: ${{ matrix.setup-type == 'runner-conda' && 'Runner Conda' || 'Latest Miniconda' }}
     runs-on: windows-latest
+    outputs:
+      runner-conda-creation: ${{ steps.runner-conda-results.outputs.creation-time }}
+      runner-conda-deletion: ${{ steps.runner-conda-results.outputs.deletion-time }}
+      latest-miniconda-creation: ${{ steps.latest-miniconda-results.outputs.creation-time }}
+      latest-miniconda-deletion: ${{ steps.latest-miniconda-results.outputs.deletion-time }}
     defaults:
       run:
         shell: bash -el {0}
@@ -69,6 +74,12 @@ jobs:
         echo "Environment deletion took: ${duration} seconds"
         echo "DELETION_TIME=${duration}" >> $GITHUB_ENV
 
+    - name: Set Job Outputs
+      id: ${{ matrix.setup-type }}-results
+      run: |
+        echo "creation-time=${CREATION_TIME}" >> $GITHUB_OUTPUT
+        echo "deletion-time=${DELETION_TIME}" >> $GITHUB_OUTPUT
+
     - name: Report Core Performance Results
       run: |
         echo "=== CORE PERFORMANCE RESULTS ==="
@@ -81,6 +92,9 @@ jobs:
   caching-performance:
     name: Caching Performance (${{ matrix.cache-enabled }})
     runs-on: windows-latest
+    outputs:
+      without-cache-time: ${{ steps.without-cache-results.outputs.install-time }}
+      with-cache-time: ${{ steps.with-cache-results.outputs.install-time }}
     defaults:
       run:
         shell: bash -el {0}
@@ -126,6 +140,11 @@ jobs:
         conda activate cache-perf-test
         python -c "import numpy, pandas, requests, pytest; print('All packages working')"
 
+    - name: Set Job Outputs
+      id: ${{ matrix.cache-enabled }}-results
+      run: |
+        echo "install-time=${INSTALL_TIME}" >> $GITHUB_OUTPUT
+
     - name: Report Cache Performance Results
       run: |
         echo "=== CACHE PERFORMANCE RESULTS ==="
@@ -138,6 +157,10 @@ jobs:
   solver-optimization-proof:
     name: Solver Optimization (${{ matrix.solver }})
     runs-on: windows-latest
+    outputs:
+      default-solver-time: ${{ steps.default-results.outputs.solver-time }}
+      libmamba-solver-time: ${{ steps.libmamba-results.outputs.solver-time }}
+      mamba-solver-time: ${{ steps.mamba-results.outputs.solver-time }}
     needs: bundled-vs-latest
     defaults:
       run:
@@ -190,6 +213,11 @@ jobs:
         echo "Solver installation took: ${duration} seconds"
         echo "SOLVER_TIME=${duration}" >> $GITHUB_ENV
 
+    - name: Set Job Outputs
+      id: ${{ matrix.solver }}-results
+      run: |
+        echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+
     - name: Report Solver Optimization Results
       run: |
         echo "=== SOLVER OPTIMIZATION RESULTS ==="
@@ -208,6 +236,9 @@ jobs:
   drive-optimization-proof:
     name: Drive Optimization (${{ matrix.drive }})
     runs-on: windows-latest
+    outputs:
+      c-drive-time: ${{ steps.c-drive-results.outputs.drive-time }}
+      d-drive-time: ${{ steps.d-drive-results.outputs.drive-time }}
     needs: caching-performance
     defaults:
       run:
@@ -258,6 +289,11 @@ jobs:
         echo "Drive installation took: ${duration} seconds"
         echo "DRIVE_TIME=${duration}" >> $GITHUB_ENV
 
+    - name: Set Job Outputs
+      id: ${{ matrix.drive }}-results
+      run: |
+        echo "drive-time=${DRIVE_TIME}" >> $GITHUB_OUTPUT
+
     - name: Report Drive Optimization Results
       run: |
         echo "=== DRIVE OPTIMIZATION RESULTS ==="
@@ -272,6 +308,11 @@ jobs:
   environment-caching:
     name: Environment Cache Test (${{ matrix.cache-run }})
     runs-on: windows-latest
+    outputs:
+      first-run-time: ${{ steps.first-results.outputs.env-time }}
+      second-run-time: ${{ steps.second-results.outputs.env-time }}
+      first-cache-hit: ${{ steps.first-results.outputs.cache-hit }}
+      second-cache-hit: ${{ steps.second-results.outputs.cache-hit }}
     defaults:
       run:
         shell: bash -el {0}
@@ -322,6 +363,12 @@ jobs:
         echo "Environment setup took: ${duration} seconds"
         echo "ENV_CACHE_TIME=${duration}" >> $GITHUB_ENV
 
+    - name: Set Job Outputs
+      id: ${{ matrix.cache-run }}-results
+      run: |
+        echo "env-time=${ENV_CACHE_TIME}" >> $GITHUB_OUTPUT
+        echo "cache-hit=${{ steps.cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
+
     - name: Test cached environment
       run: |
         conda activate test-env
@@ -347,41 +394,53 @@ jobs:
 
     - name: Create Performance Report
       run: |
-        echo "# Setup Miniconda Performance Test Results (Windows)" > performance-report.md
+        echo "# Miniconda Performance Test Results" > performance-report.md
         echo "" >> performance-report.md
         echo "**Test Date:** $(Get-Date -UFormat '%Y-%m-%d %H:%M:%S UTC')" >> performance-report.md
+        echo "**OS:** Windows" >> performance-report.md
         echo "" >> performance-report.md
-        echo "## Original Request Results" >> performance-report.md
+        
+        echo "## Runner vs Latest Miniconda" >> performance-report.md
+        echo "| Setup Type | Creation Time | Deletion Time | Total Time |" >> performance-report.md
+        echo "|------------|---------------|---------------|------------|" >> performance-report.md
+        echo "| Runner Conda | ${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}s | ${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}s | $(powershell -Command "${{ needs.bundled-vs-latest.outputs.runner-conda-creation }} + ${{ needs.bundled-vs-latest.outputs.runner-conda-deletion }}")s |" >> performance-report.md
+        echo "| Latest Miniconda | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}s | ${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}s | $(powershell -Command "${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }} + ${{ needs.bundled-vs-latest.outputs.latest-miniconda-deletion }}")s |" >> performance-report.md
         echo "" >> performance-report.md
-        echo "### 1. Runner Conda vs Latest Miniconda" >> performance-report.md
-        echo "Tests the performance difference between using runner's pre-installed conda vs latest miniconda." >> performance-report.md
-        echo "- **Runner Conda**: Uses conda already installed on Windows runners" >> performance-report.md
-        echo "- **Latest Miniconda**: Downloads and installs latest miniconda version" >> performance-report.md
+        
+        echo "## Package Caching Impact" >> performance-report.md
+        echo "| Cache Mode | Installation Time | Speedup |" >> performance-report.md
+        echo "|------------|-------------------|---------|" >> performance-report.md
+        echo "| Without Cache | ${{ needs.caching-performance.outputs.without-cache-time }}s | - |" >> performance-report.md
+        echo "| With Cache | ${{ needs.caching-performance.outputs.with-cache-time }}s | $(powershell -Command "if (${{ needs.caching-performance.outputs.without-cache-time }} -gt 0) { [math]::Round((${{ needs.caching-performance.outputs.without-cache-time }} / ${{ needs.caching-performance.outputs.with-cache-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
         echo "" >> performance-report.md
-        echo "### 2. Caching Performance" >> performance-report.md
-        echo "Tests the impact of conda package caching on installation times." >> performance-report.md
-        echo "- **Without Cache**: Fresh package downloads every time" >> performance-report.md
-        echo "- **With Cache**: Reuses cached packages from previous runs" >> performance-report.md
+        
+        echo "## Solver Performance" >> performance-report.md
+        echo "| Solver | Installation Time | vs Default |" >> performance-report.md
+        echo "|--------|-------------------|------------|" >> performance-report.md
+        echo "| Default | ${{ needs.solver-optimization-proof.outputs.default-solver-time }}s | - |" >> performance-report.md
+        echo "| Libmamba | ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}s | $(powershell -Command "if (${{ needs.solver-optimization-proof.outputs.default-solver-time }} -gt 0) { [math]::Round((${{ needs.solver-optimization-proof.outputs.default-solver-time }} / ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
+        echo "| Mamba | ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}s | $(powershell -Command "if (${{ needs.solver-optimization-proof.outputs.default-solver-time }} -gt 0) { [math]::Round((${{ needs.solver-optimization-proof.outputs.default-solver-time }} / ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
         echo "" >> performance-report.md
-        echo "## Additional Optimization Tests" >> performance-report.md
+        
+        echo "## Drive Performance" >> performance-report.md
+        echo "| Drive | Installation Time | vs C: Drive |" >> performance-report.md
+        echo "|-------|-------------------|-------------|" >> performance-report.md
+        echo "| C: Drive | ${{ needs.drive-optimization-proof.outputs.c-drive-time }}s | - |" >> performance-report.md
+        echo "| D: Drive | ${{ needs.drive-optimization-proof.outputs.d-drive-time }}s | $(powershell -Command "if (${{ needs.drive-optimization-proof.outputs.c-drive-time }} -gt 0) { [math]::Round((${{ needs.drive-optimization-proof.outputs.c-drive-time }} / ${{ needs.drive-optimization-proof.outputs.d-drive-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
         echo "" >> performance-report.md
-        echo "### 3. Solver Optimization Proof" >> performance-report.md
-        echo "Tests whether different solvers actually improve performance:" >> performance-report.md
-        echo "- **Default**: Standard conda solver" >> performance-report.md
-        echo "- **Libmamba**: C++ based faster solver" >> performance-report.md
-        echo "- **Mamba**: Complete mamba replacement" >> performance-report.md
+        
+        echo "## Environment Caching" >> performance-report.md
+        echo "| Run | Cache Hit | Setup Time | Speedup |" >> performance-report.md
+        echo "|-----|-----------|------------|---------|" >> performance-report.md
+        echo "| First | ${{ needs.environment-caching.outputs.first-cache-hit }} | ${{ needs.environment-caching.outputs.first-run-time }}s | - |" >> performance-report.md
+        echo "| Second | ${{ needs.environment-caching.outputs.second-cache-hit }} | ${{ needs.environment-caching.outputs.second-run-time }}s | $(powershell -Command "if (${{ needs.environment-caching.outputs.first-run-time }} -gt 0) { [math]::Round((${{ needs.environment-caching.outputs.first-run-time }} / ${{ needs.environment-caching.outputs.second-run-time }}), 2) } else { 'N/A' }")x |" >> performance-report.md
         echo "" >> performance-report.md
-        echo "### 4. Drive Optimization Proof" >> performance-report.md
-        echo "Tests whether D: drive caching is actually faster than C: drive:" >> performance-report.md
-        echo "- **C: Drive**: Standard Windows system drive" >> performance-report.md
-        echo "- **D: Drive**: Secondary drive with potentially better I/O" >> performance-report.md
-        echo "" >> performance-report.md
-        echo "## How to Interpret Results" >> performance-report.md
-        echo "" >> performance-report.md
-        echo "1. **Compare runner-conda vs latest-miniconda** to see which base installation is faster" >> performance-report.md
-        echo "2. **Compare with-cache vs without-cache** to quantify caching benefits" >> performance-report.md
-        echo "3. **Compare solver results** to see if libmamba/mamba actually help" >> performance-report.md
-        echo "4. **Compare drive results** to see if D: drive optimization is worth it" >> performance-report.md
+        
+        echo "## Summary" >> performance-report.md
+        echo "- **Fastest Base Setup:** $(powershell -Command "if (${{ needs.bundled-vs-latest.outputs.runner-conda-creation }} -lt ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}) { 'Runner Conda' } else { 'Latest Miniconda' }")" >> performance-report.md
+        echo "- **Cache Benefit:** $(powershell -Command "if (${{ needs.caching-performance.outputs.without-cache-time }} -gt 0) { [math]::Round(((${{ needs.caching-performance.outputs.without-cache-time }} - ${{ needs.caching-performance.outputs.with-cache-time }}) / ${{ needs.caching-performance.outputs.without-cache-time }} * 100), 1) } else { 0 }")% faster" >> performance-report.md
+        echo "- **Best Solver:** $(powershell -Command "$times = @(${{ needs.solver-optimization-proof.outputs.default-solver-time }}, ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}, ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}); $solvers = @('Default', 'Libmamba', 'Mamba'); $min = ($times | Measure-Object -Minimum).Minimum; $index = [array]::IndexOf($times, $min); $solvers[$index]")" >> performance-report.md
+        echo "- **Drive Impact:** $(powershell -Command "if (${{ needs.drive-optimization-proof.outputs.c-drive-time }} -lt ${{ needs.drive-optimization-proof.outputs.d-drive-time }}) { 'C: drive faster' } else { 'D: drive faster' }")" >> performance-report.md
       shell: pwsh
 
     - name: Upload Performance Report
@@ -390,19 +449,18 @@ jobs:
         name: performance-report
         path: performance-report.md
 
-    - name: Display Final Summary
+    - name: Display Results Summary
       run: |
-        echo "=== PERFORMANCE TEST COMPLETED ==="
-        echo ""
-        echo "ORIGINAL REQUEST RESULTS:"
-        echo "✓ Runner Conda vs Latest Miniconda: ${{ needs.bundled-vs-latest.result }}"
-        echo "✓ Caching performance test: ${{ needs.caching-performance.result }}"
-        echo ""
-        echo "OPTIMIZATION PROOF RESULTS:"
-        echo "✓ Solver optimization proof: ${{ needs.solver-optimization-proof.result }}"
-        echo "✓ Drive optimization proof: ${{ needs.drive-optimization-proof.result }}"
-        echo "✓ Environment caching test: ${{ needs.environment-caching.result }}"
-        echo ""
-        echo "Check job logs to compare actual timing numbers."
+        echo "=== PERFORMANCE RESULTS ==="
+        echo "Runner Conda: ${{ needs.bundled-vs-latest.outputs.runner-conda-creation }}s creation"
+        echo "Latest Miniconda: ${{ needs.bundled-vs-latest.outputs.latest-miniconda-creation }}s creation"
+        echo "Without Cache: ${{ needs.caching-performance.outputs.without-cache-time }}s"
+        echo "With Cache: ${{ needs.caching-performance.outputs.with-cache-time }}s"
+        echo "Default Solver: ${{ needs.solver-optimization-proof.outputs.default-solver-time }}s"
+        echo "Libmamba Solver: ${{ needs.solver-optimization-proof.outputs.libmamba-solver-time }}s"
+        echo "Mamba Solver: ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}s"
+        echo "C: Drive: ${{ needs.drive-optimization-proof.outputs.c-drive-time }}s"
+        echo "D: Drive: ${{ needs.drive-optimization-proof.outputs.d-drive-time }}s"
+        echo "Env Cache First: ${{ needs.environment-caching.outputs.first-run-time }}s"
+        echo "Env Cache Second: ${{ needs.environment-caching.outputs.second-run-time }}s"
       shell: pwsh
-
