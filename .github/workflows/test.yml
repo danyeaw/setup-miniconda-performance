@@ -289,7 +289,7 @@ jobs:
         echo "=== Testing lockfile environment creation with bash shell ==="
         start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         
-        conda env create --name lockfile-test-bash --file environment-windows.conda.lock
+        conda create --name lockfile-test-bash --file environment-windows.conda.lock
         
         end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
         duration=$(powershell -Command "($end_time - $start_time) / 10000000")
@@ -304,7 +304,7 @@ jobs:
         echo "=== Testing lockfile environment creation with pwsh shell ==="
         $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
         
-        conda env create --name lockfile-test-pwsh --file environment-windows.conda.lock
+        conda create --name lockfile-test-pwsh --file environment-windows.conda.lock
         
         $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
         $duration = powershell -Command "($end_time - $start_time) / 10000000"
@@ -318,7 +318,7 @@ jobs:
         echo === Testing lockfile environment creation with cmd shell ===
         $start_time = [System.DateTime]::Now.Ticks
         
-        conda env create --name lockfile-test-cmd --file environment-windows.conda.lock
+        conda create --name lockfile-test-cmd --file environment-windows.conda.lock
         
         $end_time = [System.DateTime]::Now.Ticks
         $duration = ($end_time - $start_time) / 10000000
