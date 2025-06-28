@@ -198,7 +198,12 @@ jobs:
         echo "Compare with 'default' results to see if optimization helps"
 
     - name: Cleanup
-      run: conda env remove -n solver-perf-test -y
+      run: |
+        if [ "${{ matrix.solver }}" = "mamba" ]; then
+          mamba env remove -n solver-perf-test -y
+        else
+          conda env remove -n solver-perf-test -y
+        fi
 
   drive-optimization-proof:
     name: Drive Optimization (${{ matrix.drive }})
