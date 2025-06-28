@@ -1,0 +1,416 @@
+name: Setup Miniconda Performance Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/test.yml' ]
+
+env:
+  CACHE_NUMBER: 0
+
+jobs:
+  bundled-vs-latest:
+    name: ${{ matrix.setup-type == 'runner-conda' && 'Runner Conda' || 'Latest Miniconda' }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        setup-type: [runner-conda, latest-miniconda]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Runner Conda (Baseline)
+      if: matrix.setup-type == 'runner-conda'
+      shell: bash -el {0}
+      run: |
+        conda info
+        echo "Using runner's pre-installed conda"
+
+    - name: Setup Latest Miniconda
+      if: matrix.setup-type == 'latest-miniconda'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        auto-activate-base: false
+
+    - name: Time Environment Creation
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing ${{ matrix.setup-type }} setup performance ==="
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        echo "Environment creation took: ${duration} seconds"
+        echo "CREATION_TIME=${duration}" >> $GITHUB_ENV
+
+    - name: Test Environment Works
+      shell: bash -el {0}
+      run: |
+        conda activate perf-test-${{ matrix.setup-type }}
+        python -c "import numpy, pandas, requests, pytest; print('✓ Environment working correctly')"
+        conda list
+
+    - name: Time Environment Deletion
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing environment deletion ==="
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        conda env remove -n perf-test-${{ matrix.setup-type }} -y
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        echo "Environment deletion took: ${duration} seconds"
+        echo "DELETION_TIME=${duration}" >> $GITHUB_ENV
+
+    - name: Report Core Performance Results
+      shell: bash -el {0}
+      run: |
+        echo "=== CORE PERFORMANCE RESULTS ==="
+        echo "Setup Type: ${{ matrix.setup-type }}"
+        echo "Creation Time: ${CREATION_TIME} seconds"
+        echo "Deletion Time: ${DELETION_TIME} seconds"
+        echo "Total Time: $(powershell -Command "${CREATION_TIME} + ${DELETION_TIME}") seconds"
+        conda info
+
+  caching-performance:
+    name: Caching Performance (${{ matrix.cache-enabled }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cache-enabled: [without-cache, with-cache]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Cache conda packages
+      if: matrix.cache-enabled == 'with-cache'
+      uses: actions/cache@v3
+      with:
+        path: ~/conda_pkgs_dir
+        key: windows-cache-test-${{ env.CACHE_NUMBER }}-${{ hashFiles('environment.yml') }}
+        restore-keys: |
+          windows-cache-test-${{ env.CACHE_NUMBER }}-
+
+    - name: Setup Miniconda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        activate-environment: cache-test
+        pkgs-dirs: ${{ matrix.cache-enabled == 'with-cache' && '~/conda_pkgs_dir' || '' }}
+        use-only-tar-bz2: ${{ matrix.cache-enabled == 'with-cache' }}
+        auto-activate-base: false
+
+    - name: Time Package Installation
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing installation ${{ matrix.cache-enabled }} ==="
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        conda env create -f environment.yml -n cache-perf-test
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        echo "Package installation took: ${duration} seconds"
+        echo "INSTALL_TIME=${duration}" >> $GITHUB_ENV
+
+    - name: Verify Installation
+      shell: bash -el {0}
+      run: |
+        conda activate cache-perf-test
+        python -c "import numpy, pandas, requests, pytest; print('✓ All packages working')"
+
+    - name: Report Cache Performance Results
+      shell: bash -el {0}
+      run: |
+        echo "=== CACHE PERFORMANCE RESULTS ==="
+        echo "Cache Mode: ${{ matrix.cache-enabled }}"
+        echo "Installation Time: ${INSTALL_TIME} seconds"
+
+    - name: Cleanup
+      shell: bash -el {0}
+      run: conda env remove -n cache-perf-test -y
+
+  solver-optimization-proof:
+    name: Solver Optimization (${{ matrix.solver }})
+    runs-on: windows-latest
+    needs: bundled-vs-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        solver: [default, libmamba, mamba]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Miniconda - Default Solver
+      if: matrix.solver == 'default'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        activate-environment: solver-test
+        auto-activate-base: false
+
+    - name: Setup Miniconda - Libmamba Solver
+      if: matrix.solver == 'libmamba'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        auto-update-conda: true
+        conda-solver: libmamba
+        activate-environment: solver-test
+        auto-activate-base: false
+
+    - name: Setup Miniconda - Mamba
+      if: matrix.solver == 'mamba'
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        auto-update-conda: true
+        mamba-version: "*"
+        channels: conda-forge,defaults
+        activate-environment: solver-test
+        auto-activate-base: false
+
+    - name: Time Solver Performance
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing ${{ matrix.solver }} solver performance ==="
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        if [ "${{ matrix.solver }}" = "mamba" ]; then
+          mamba env create -f environment.yml -n solver-perf-test
+        else
+          conda env create -f environment.yml -n solver-perf-test
+        fi
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        echo "Solver installation took: ${duration} seconds"
+        echo "SOLVER_TIME=${duration}" >> $GITHUB_ENV
+
+    - name: Report Solver Optimization Results
+      shell: bash -el {0}
+      run: |
+        echo "=== SOLVER OPTIMIZATION RESULTS ==="
+        echo "Solver: ${{ matrix.solver }}"
+        echo "Installation Time: ${SOLVER_TIME} seconds"
+        echo "Compare with 'default' results to see if optimization helps"
+
+    - name: Cleanup
+      shell: bash -el {0}
+      run: conda env remove -n solver-perf-test -y
+
+  drive-optimization-proof:
+    name: Drive Optimization (${{ matrix.drive }})
+    runs-on: windows-latest
+    needs: caching-performance
+    strategy:
+      fail-fast: false
+      matrix:
+        drive: [c-drive, d-drive]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set cache path
+      run: |
+        if ("${{ matrix.drive }}" -eq "c-drive") {
+          echo "CACHE_PATH=C:\conda_pkgs_dir" >> $env:GITHUB_ENV
+        } else {
+          echo "CACHE_PATH=D:\conda_pkgs_dir" >> $env:GITHUB_ENV
+        }
+      shell: pwsh
+
+    - name: Cache conda packages
+      uses: actions/cache@v3
+      with:
+        enableCrossOsArchive: ${{ matrix.drive == 'd-drive' }}
+        path: ${{ env.CACHE_PATH }}
+        key: ${{ matrix.drive }}-cache-${{ env.CACHE_NUMBER }}-${{ hashFiles('environment.yml') }}
+        restore-keys: |
+          ${{ matrix.drive }}-cache-${{ env.CACHE_NUMBER }}-
+
+    - name: Setup Miniconda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniconda-version: "latest"
+        activate-environment: drive-test
+        pkgs-dirs: ${{ env.CACHE_PATH }}
+        use-only-tar-bz2: true
+        auto-activate-base: false
+
+    - name: Time Drive Performance
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing ${{ matrix.drive }} performance ==="
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        conda env create -f environment.yml -n drive-perf-test
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        echo "Drive installation took: ${duration} seconds"
+        echo "DRIVE_TIME=${duration}" >> $GITHUB_ENV
+
+    - name: Report Drive Optimization Results
+      shell: bash -el {0}
+      run: |
+        echo "=== DRIVE OPTIMIZATION RESULTS ==="
+        echo "Drive: ${{ matrix.drive }}"
+        echo "Installation Time: ${DRIVE_TIME} seconds"
+        echo "Cache Path: ${{ env.CACHE_PATH }}"
+        echo "Compare c-drive vs d-drive results to see if D: drive helps"
+
+    - name: Cleanup
+      shell: bash -el {0}
+      run: conda env remove -n drive-perf-test -y
+
+  environment-caching:
+    name: Environment Cache Test (${{ matrix.cache-run }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cache-run: [first, second]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get Date
+      id: get-date
+      run: echo "today=$(Get-Date -UFormat '+%Y%m%d')" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+
+    - name: Setup Miniforge (Initial)
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: latest
+        activate-environment: test-env
+        auto-activate-base: false
+
+    - name: Cache Conda environment
+      uses: actions/cache@v3
+      with:
+        path: ${{ env.CONDA }}/envs
+        key: conda-windows--x64--${{ steps.get-date.outputs.today }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ matrix.cache-run }}
+        restore-keys: |
+          conda-windows--x64--${{ steps.get-date.outputs.today }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-
+      id: cache
+
+    - name: Time Environment Update (Cache Miss/Hit)
+      shell: bash -el {0}
+      run: |
+        echo "=== Testing environment caching (${{ matrix.cache-run }} run) ==="
+        echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
+        
+        start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        
+        if [ "${{ steps.cache.outputs.cache-hit }}" != "true" ]; then
+          echo "Cache miss - creating environment"
+          mamba env update -n test-env -f environment.yml
+        else
+          echo "Cache hit - environment should be ready"
+        fi
+        
+        end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+        duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+        echo "Environment setup took: ${duration} seconds"
+        echo "ENV_CACHE_TIME=${duration}" >> $GITHUB_ENV
+
+    - name: Test cached environment
+      shell: bash -el {0}
+      run: |
+        conda activate test-env
+        python -c "import numpy, pandas, requests, pytest; print('Cached environment working correctly')"
+
+    - name: Report Environment Cache Performance
+      shell: bash -el {0}
+      run: |
+        echo "=== ENVIRONMENT CACHE PERFORMANCE SUMMARY ==="
+        echo "OS: Windows"
+        echo "Cache Run: ${{ matrix.cache-run }}"
+        echo "Cache Hit: ${{ steps.cache.outputs.cache-hit }}"
+        echo "Setup Time: ${ENV_CACHE_TIME} seconds"
+
+  performance-summary:
+    name: Performance Summary
+    runs-on: windows-latest
+    needs: [bundled-vs-latest, caching-performance, solver-optimization-proof, drive-optimization-proof, environment-caching]
+    if: always()
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Create Performance Report
+      run: |
+        echo "# Setup Miniconda Performance Test Results (Windows)" > performance-report.md
+        echo "" >> performance-report.md
+        echo "**Test Date:** $(Get-Date -UFormat '%Y-%m-%d %H:%M:%S UTC')" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "## Original Request Results" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "### 1. Runner Conda vs Latest Miniconda" >> performance-report.md
+        echo "Tests the performance difference between using runner's pre-installed conda vs latest miniconda." >> performance-report.md
+        echo "- **Runner Conda**: Uses conda already installed on Windows runners" >> performance-report.md
+        echo "- **Latest Miniconda**: Downloads and installs latest miniconda version" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "### 2. Caching Performance" >> performance-report.md
+        echo "Tests the impact of conda package caching on installation times." >> performance-report.md
+        echo "- **Without Cache**: Fresh package downloads every time" >> performance-report.md
+        echo "- **With Cache**: Reuses cached packages from previous runs" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "## Additional Optimization Tests" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "### 3. Solver Optimization Proof" >> performance-report.md
+        echo "Tests whether different solvers actually improve performance:" >> performance-report.md
+        echo "- **Default**: Standard conda solver" >> performance-report.md
+        echo "- **Libmamba**: C++ based faster solver" >> performance-report.md
+        echo "- **Mamba**: Complete mamba replacement" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "### 4. Drive Optimization Proof" >> performance-report.md
+        echo "Tests whether D: drive caching is actually faster than C: drive:" >> performance-report.md
+        echo "- **C: Drive**: Standard Windows system drive" >> performance-report.md
+        echo "- **D: Drive**: Secondary drive with potentially better I/O" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "## How to Interpret Results" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "1. **Compare runner-conda vs latest-miniconda** to see which base installation is faster" >> performance-report.md
+        echo "2. **Compare with-cache vs without-cache** to quantify caching benefits" >> performance-report.md
+        echo "3. **Compare solver results** to see if libmamba/mamba actually help" >> performance-report.md
+        echo "4. **Compare drive results** to see if D: drive optimization is worth it" >> performance-report.md
+      shell: pwsh
+
+    - name: Upload Performance Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-report
+        path: performance-report.md
+
+    - name: Display Final Summary
+      run: |
+        echo "=== PERFORMANCE TEST COMPLETED ==="
+        echo ""
+        echo "ORIGINAL REQUEST RESULTS:"
+        echo "✓ Runner Conda vs Latest Miniconda: ${{ needs.bundled-vs-latest.result }}"
+        echo "✓ Caching performance test: ${{ needs.caching-performance.result }}"
+        echo ""
+        echo "OPTIMIZATION PROOF RESULTS:"
+        echo "✓ Solver optimization proof: ${{ needs.solver-optimization-proof.result }}"
+        echo "✓ Drive optimization proof: ${{ needs.drive-optimization-proof.result }}"
+        echo "✓ Environment caching test: ${{ needs.environment-caching.result }}"
+        echo ""
+        echo "Check job logs to compare actual timing numbers."
+      shell: pwsh
