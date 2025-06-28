@@ -1,0 +1,38 @@
+name: Check for Warnings
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warnings:
+    name: Warnings on Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Runner Conda
+      uses: conda-incubator/setup-miniconda@v3
+
+    - name: Create Environment
+      run: conda env create -f environment.yml -n test
+
+    - name: Test Environment Works
+      run: |
+        conda activate test
+        python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
+        conda list
+
+    - name: Remove Environment
+      run: conda env remove -n test -y
+
