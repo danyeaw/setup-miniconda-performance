@@ -321,13 +321,12 @@ jobs:
         if: matrix.shell-type == 'bash'
         shell: 'bash -el {0}'
         run: >
-          echo "=== Testing lockfile environment creation with bash shell ==="
+          echo "=== Testing conda-lock environment creation with bash shell ==="
 
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
 
 
-          conda create --name lockfile-test-bash --file
-          environment-windows.conda.lock --yes
+          conda env create --name lockfile-test-bash --file conda-lock.yml
 
 
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -337,7 +336,7 @@ jobs:
           formatted_duration=$(powershell -Command "[math]::Round($duration,
           1)")
 
-          echo "Lockfile environment creation took: ${formatted_duration}
+          echo "Conda-lock environment creation took: ${formatted_duration}
           seconds"
 
           echo "LOCKFILE_TIME=${formatted_duration}" >> $GITHUB_ENV
@@ -345,13 +344,12 @@ jobs:
         if: matrix.shell-type == 'pwsh'
         shell: pwsh
         run: >
-          echo "=== Testing lockfile environment creation with pwsh shell ==="
+          echo "=== Testing conda-lock environment creation with pwsh shell ==="
 
           $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
 
 
-          conda create --name lockfile-test-pwsh --file
-          environment-windows.conda.lock --yes
+          conda env create --name lockfile-test-pwsh --file conda-lock.yml
 
 
           $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
@@ -360,19 +358,19 @@ jobs:
 
           $formatted_duration = [math]::Round($duration, 1)
 
-          echo "Lockfile environment creation took: $formatted_duration seconds"
+          echo "Conda-lock environment creation took: $formatted_duration
+          seconds"
 
           echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
       - name: Time Lockfile Environment Creation (CMD)
         if: matrix.shell-type == 'cmd'
         run: >
-          echo === Testing lockfile environment creation with cmd shell ===
+          echo === Testing conda-lock environment creation with cmd shell ===
 
           $start_time = [System.DateTime]::Now.Ticks
 
 
-          conda create --name lockfile-test-cmd --file
-          environment-windows.conda.lock --yes
+          conda env create --name lockfile-test-cmd --file conda-lock.yml
 
 
           $end_time = [System.DateTime]::Now.Ticks
@@ -381,7 +379,8 @@ jobs:
 
           $formatted_duration = [math]::Round($duration, 1)
 
-          echo "Lockfile environment creation took: $formatted_duration seconds"
+          echo "Conda-lock environment creation took: $formatted_duration
+          seconds"
 
           echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
         shell: pwsh
@@ -391,12 +390,12 @@ jobs:
         run: >
           conda activate lockfile-test-bash
 
-          echo "=== Testing lockfile environment with bash ==="
+          echo "=== Testing conda-lock environment with bash ==="
 
-          python -c "import numpy, pandas, requests, pytest; print('Lockfile
+          python -c "import numpy, pandas, requests, pytest; print('Conda-lock
           environment working correctly')"
 
-          echo "Package count in lockfile environment: $(conda list | wc -l)"
+          echo "Package count in conda-lock environment: $(conda list | wc -l)"
 
           echo "Python version: $(python --version)"
       - name: Test Lockfile Environment (PowerShell)
@@ -405,14 +404,14 @@ jobs:
         run: >
           conda activate lockfile-test-pwsh
 
-          echo "=== Testing lockfile environment with pwsh ==="
+          echo "=== Testing conda-lock environment with pwsh ==="
 
-          python -c "import numpy, pandas, requests, pytest; print('Lockfile
+          python -c "import numpy, pandas, requests, pytest; print('Conda-lock
           environment working correctly')"
 
           $packageCount = (conda list | Measure-Object -Line).Lines
 
-          echo "Package count in lockfile environment: $packageCount"
+          echo "Package count in conda-lock environment: $packageCount"
 
           echo "Python version: $(python --version)"
       - name: Test Lockfile Environment (CMD)
@@ -421,9 +420,9 @@ jobs:
         run: >
           conda activate lockfile-test-cmd
 
-          echo === Testing lockfile environment with cmd ===
+          echo === Testing conda-lock environment with cmd ===
 
-          python -c "import numpy, pandas, requests, pytest; print('Lockfile
+          python -c "import numpy, pandas, requests, pytest; print('Conda-lock
           environment working correctly')"
 
           echo Python version:
@@ -450,17 +449,16 @@ jobs:
       - name: Report Lockfile Performance Results
         shell: pwsh
         run: >
-          echo "=== LOCKFILE PERFORMANCE RESULTS ==="
+          echo "=== CONDA-LOCK PERFORMANCE RESULTS ==="
 
           echo "Shell Type: ${{ matrix.shell-type }}"
 
-          echo "Lockfile Time: $env:LOCKFILE_TIME seconds"
+          echo "Conda-lock Time: $env:LOCKFILE_TIME seconds"
 
-          echo "This tests pre-generated Windows lockfile vs standard
+          echo "This tests conda-lock generated lockfile vs standard
           environment.yml"
 
-          echo "Lockfile should skip dependency resolution for much faster
-          installs"
+          echo "Conda-lock should provide faster, fully reproducible installs"
       - name: Cleanup
         shell: 'bash -el {0}'
         run: |
@@ -871,6 +869,7 @@ jobs:
           miniconda-version: latest
           auto-update-conda: true
           mamba-version: '*'
+          channels: 'conda-forge,defaults'
       - name: Setup Miniforge - Mamba v1
         if: matrix.solver == 'mamba-v1'
         uses: conda-incubator/setup-miniconda@v3
@@ -878,6 +877,7 @@ jobs:
           miniforge-version: 24.11.3-2
           auto-update-conda: false
           use-mamba: true
+          channels: 'conda-forge,defaults'
       - name: Time Solver Performance
         run: >
           echo "=== Testing ${{ matrix.solver }} solver performance ==="
