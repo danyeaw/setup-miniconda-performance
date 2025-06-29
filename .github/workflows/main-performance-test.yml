@@ -105,17 +105,8 @@ jobs:
     needs: [trigger-tests]
     if: ${{ github.event.inputs.generate-summary != 'false' }}
     steps:
-      - name: Wait for Tests to Complete
-        run: |
-          echo "Waiting for triggered tests to complete..."
-          echo "This will wait up to 15 minutes for all tests to finish"
-          
-          # Wait 15 minutes for tests to complete
-          echo "Waiting 15 minutes..."
-          sleep 900
-
-      - name: Check Test Status
-        id: check-status
+      - name: Smart Wait for Tests to Complete
+        id: smart-wait
         uses: actions/github-script@v7
         with:
           script: |
@@ -130,61 +121,120 @@ jobs:
               'shell-performance': 'shell-performance.yml'
             };
             
-            const results = {};
-            let allCompleted = true;
+            const pollInterval = 60000; // Poll every 60 seconds
+            const maxWaitTime = 30 * 60 * 1000; // Maximum 30 minutes
+            const startTime = Date.now();
             
-            for (const workflowName of triggeredWorkflows) {
-              const workflowFile = workflowFiles[workflowName];
-              if (!workflowFile) continue;
+            console.log(`Waiting for ${triggeredWorkflows.length} workflows to complete...`);
+            console.log(`Workflows: ${triggeredWorkflows.join(', ')}`);
             
-              const runs = await github.rest.actions.listWorkflowRuns({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: workflowFile,
-                per_page: 5
-              });
+            while (Date.now() - startTime < maxWaitTime) {
+              const results = {};
+              let allCompleted = true;
+              let anyRunning = false;
             
-              // Find the most recent run that started after this workflow
-              const recentRun = runs.data.workflow_runs.find(run => 
-                new Date(run.created_at) > new Date('${{ github.event.head_commit.timestamp || github.run_started_at }}')
-              );
+              for (const workflowName of triggeredWorkflows) {
+                const workflowFile = workflowFiles[workflowName];
+                if (!workflowFile) continue;
             
-              if (recentRun) {
-                results[workflowName] = {
-                  status: recentRun.status,
-                  conclusion: recentRun.conclusion,
-                  html_url: recentRun.html_url,
-                  created_at: recentRun.created_at
-                };
+                try {
+                  const runs = await github.rest.actions.listWorkflowRuns({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    workflow_id: workflowFile,
+                    per_page: 5
+                  });
             
-                if (recentRun.status !== 'completed') {
+                  // Look for runs that started after this workflow began
+                  const recentRun = runs.data.workflow_runs.find(run => 
+                    new Date(run.created_at) > new Date('${{ github.run_started_at }}')
+                  );
+            
+                  if (recentRun) {
+                    results[workflowName] = {
+                      status: recentRun.status,
+                      conclusion: recentRun.conclusion,
+                      html_url: recentRun.html_url,
+                      created_at: recentRun.created_at
+                    };
+            
+                    if (recentRun.status === 'in_progress' || recentRun.status === 'queued') {
+                      allCompleted = false;
+                      anyRunning = true;
+                    } else if (recentRun.status !== 'completed') {
+                      allCompleted = false;
+                    }
+                  } else {
+                    results[workflowName] = { status: 'not_started' };
+                    allCompleted = false;
+                  }
+                } catch (error) {
+                  console.log(`Error checking ${workflowName}: ${error.message}`);
+                  results[workflowName] = { status: 'error' };
                   allCompleted = false;
                 }
-              } else {
-                results[workflowName] = { status: 'not_started' };
-                allCompleted = false;
               }
+            
+              // Log current status
+              const elapsed = Math.round((Date.now() - startTime) / 1000);
+              console.log(`\n⏱️  Elapsed: ${elapsed}s`);
+            
+              for (const [name, result] of Object.entries(results)) {
+                const status = result.status === 'completed' ? 
+                  `✅ ${result.conclusion}` : 
+                  result.status === 'in_progress' ? 
+                  `🔄 running` :
+                  result.status === 'queued' ?
+                  `⏳ queued` :
+                  `❓ ${result.status}`;
+                console.log(`  ${name}: ${status}`);
+              }
+            
+              if (allCompleted) {
+                console.log(`\n🎉 All workflows completed after ${elapsed}s!`);
+                core.setOutput('results', JSON.stringify(results));
+                core.setOutput('all_completed', 'true');
+                core.setOutput('wait_time', elapsed);
+                return results;
+              }
+            
+              if (!anyRunning && elapsed > 300) { // If nothing running after 5 minutes
+                console.log(`\n⚠️  No workflows appear to be running after ${elapsed}s`);
+                console.log('This might indicate a workflow dispatch issue');
+              }
+            
+              // Wait before next poll
+              console.log(`\n💤 Waiting ${pollInterval/1000}s before next check...`);
+              await new Promise(resolve => setTimeout(resolve, pollInterval));
             }
             
+            // Timeout reached
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            console.log(`\n⏰ Timeout reached after ${elapsed}s`);
+            console.log('Some workflows may still be running');
+            
             core.setOutput('results', JSON.stringify(results));
-            core.setOutput('all_completed', allCompleted);
+            core.setOutput('all_completed', 'false');
+            core.setOutput('wait_time', elapsed);
+            core.setOutput('timeout', 'true');
             
             return results;
 
       - name: Generate Quick Summary
         env:
-          TEST_RESULTS: ${{ steps.check-status.outputs.results }}
+          TEST_RESULTS: ${{ steps.smart-wait.outputs.results }}
         run: |
           echo "=== PERFORMANCE TEST SUMMARY ===" 
           echo ""
           echo "**Triggered at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo "**Test Suite:** ${{ github.event.inputs.test-suite || 'all' }}"
+          echo "**Wait Time:** ${{ steps.smart-wait.outputs.wait_time }}s"
           echo ""
           echo "## Test Status"
           echo ""
           
           # Parse and display results
-          echo '${{ steps.check-status.outputs.results }}' | jq -r '
+          echo '${{ steps.smart-wait.outputs.results }}' | jq -r '
             to_entries[] |
             "- **" + .key + "**: " + 
             (if .value.status == "completed" then 
@@ -196,11 +246,18 @@ jobs:
           '
           
           echo ""
-          if [ "${{ steps.check-status.outputs.all_completed }}" = "true" ]; then
-            echo "✅ All tests completed!"
+          if [ "${{ steps.smart-wait.outputs.all_completed }}" = "true" ]; then
+            echo "✅ All tests completed in ${{ steps.smart-wait.outputs.wait_time }}s!"
             echo ""
-            echo "For detailed performance analysis, check the individual workflow results above,"
-            echo "or run the 'Performance Summary' workflow to generate a comprehensive report."
+            echo "Performance summary will be generated automatically..."
+          elif [ "${{ steps.smart-wait.outputs.timeout }}" = "true" ]; then
+            echo "⏰ Timeout reached after ${{ steps.smart-wait.outputs.wait_time }}s"
+            echo ""
+            echo "Some tests may still be running. Check the Actions tab:"
+            echo "https://github.com/${{ github.repository }}/actions"
+            echo ""
+            echo "You can run the summary manually once tests complete:"
+            echo "gh workflow run performance-summary.yml"
           else
             echo "⏳ Some tests are still running or haven't started yet."
             echo ""
@@ -209,17 +266,19 @@ jobs:
           fi
 
       - name: Trigger Summary Report
-        if: steps.check-status.outputs.all_completed == 'true'
+        if: steps.smart-wait.outputs.all_completed == 'true'
         uses: actions/github-script@v7
         with:
           script: |
             // Wait a bit more to ensure all artifacts are ready
-            await new Promise(resolve => setTimeout(resolve, 60000));
+            console.log('⏳ Waiting 30s for artifacts to be ready...');
+            await new Promise(resolve => setTimeout(resolve, 30000));
             
+            console.log('🚀 Triggering Performance Summary workflow...');
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'performance-summary.yml',
               ref: 'main'
             });
-            console.log('✅ Triggered Performance Summary workflow');
+            console.log('✅ Performance Summary workflow triggered!');
