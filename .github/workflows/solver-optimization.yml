@@ -20,7 +20,7 @@ jobs:
       mamba-v1-solver-time: ${{ steps.mamba-v1-results.outputs.solver-time }}
     defaults:
       run:
-        shell: bash -el {0}
+        shell: pwsh
     strategy:
       fail-fast: false
       matrix:
@@ -56,46 +56,46 @@ jobs:
 
       - name: Time Solver Performance
         run: |
-          start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-          if [ "${{ matrix.solver }}" = "mamba" ] || [ "${{ matrix.solver }}" = "mamba-v1" ]; then
+          $start_time = [System.DateTime]::Now.Ticks
+          if ("${{ matrix.solver }}" -eq "mamba" -or "${{ matrix.solver }}" -eq "mamba-v1") {
             mamba env create -f environment.yml -n solver-perf-test
-          else
+          } else {
             conda env create -f environment.yml -n solver-perf-test
-          fi
-          end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-          duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-          formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "SOLVER_TIME=${formatted_duration}" >> $GITHUB_ENV
+          }
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "SOLVER_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Set Default Solver Outputs
         if: matrix.solver == 'default'
         id: default-results
         run: |
-          echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+          echo "solver-time=$env:SOLVER_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Set Mamba Solver Outputs
         if: matrix.solver == 'mamba'
         id: mamba-results
         run: |
-          echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+          echo "solver-time=$env:SOLVER_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Set Mamba v1 Solver Outputs
         if: matrix.solver == 'mamba-v1'
         id: mamba-v1-results
         run: |
-          echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+          echo "solver-time=$env:SOLVER_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Report Solver Optimization Results
         run: |
           echo "=== SOLVER OPTIMIZATION RESULTS ==="
           echo "Solver: ${{ matrix.solver }}"
-          echo "Installation Time: ${SOLVER_TIME} seconds"
+          echo "Installation Time: $env:SOLVER_TIME seconds"
           echo "Compare with 'default' results to see if optimization helps"
 
       - name: Cleanup
         run: |
-          if [ "${{ matrix.solver }}" = "mamba" ] || [ "${{ matrix.solver }}" = "mamba-v1" ]; then
+          if ("${{ matrix.solver }}" -eq "mamba" -or "${{ matrix.solver }}" -eq "mamba-v1") {
             mamba env remove -n solver-perf-test -y
-          else
+          } else {
             conda env remove -n solver-perf-test -y
-          fi
+          }

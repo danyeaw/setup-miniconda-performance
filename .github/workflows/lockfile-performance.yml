@@ -1,4 +1,41 @@
-name: Lockfile Performance
+lockfile-summary:
+  name: Lockfile Performance Summary
+  runs-on: windows-latest
+  needs: [lockfile-performance]
+  if: always()
+  steps:
+    - name: Generate Lockfile Comparison Report
+      shell: pwsh
+      run: |
+        echo "=== LOCKFILE PERFORMANCE SUMMARY ==="
+        echo ""
+        echo "| Approach | Installation Time | Reproducibility | Speed |"
+        echo "|----------|-------------------|------------------|-------|"
+        echo "| Standard environment.yml | ${{ needs.lockfile-performance.outputs.standard-time }}s | Flexible versions | Variable |"
+        echo "| conda-lock lockfile | ${{ needs.lockfile-performance.outputs.lockfile-time }}s | Exact versions | Consistent |"
+        echo ""
+        
+        $standard_time = if ('${{ needs.lockfile-performance.outputs.standard-time }}' -ne '') { [double]'${{ needs.lockfile-performance.outputs.standard-time }}' } else { 0 }
+        $lockfile_time = if ('${{ needs.lockfile-performance.outputs.lockfile-time }}' -ne '') { [double]'${{ needs.lockfile-performance.outputs.lockfile-time }}' } else { 0 }
+        
+        if ($standard_time -gt 0 -and $lockfile_time -gt 0) {
+          if ($lockfile_time -lt $standard_time) {
+            $speedup = [math]::Round(($standard_time / $lockfile_time), 1)
+            echo "**Winner**: conda-lock (${speedup}x faster)"
+          } elseif ($standard_time -lt $lockfile_time) {
+            $speedup = [math]::Round(($lockfile_time / $standard_time), 1)
+            echo "**Winner**: Standard environment.yml (${speedup}x faster)"
+          } else {
+            echo "**Result**: Similar performance"
+          }
+        }
+        
+        echo ""
+        echo "**Key Insights**:"
+        echo "- conda-lock provides exact reproducibility with pre-resolved dependencies"
+        echo "- Standard environment.yml allows version flexibility but variable resolution"
+        echo "- Lockfiles should be faster due to skipped dependency resolution"
+        echo "- Trade-off between speed/reproducibility vs flexibility"name: Lockfile Performance
 
 on:
   workflow_dispatch:
@@ -12,16 +49,14 @@ concurrency:
 
 jobs:
   lockfile-performance:
-    name: Lockfile Performance (${{ matrix.shell-type }})
+    name: Lockfile Performance Test
     runs-on: windows-latest
     outputs:
-      lockfile-bash-time: ${{ steps.lockfile-bash-results.outputs.lockfile-time }}
-      lockfile-pwsh-time: ${{ steps.lockfile-pwsh-results.outputs.lockfile-time }}
-      lockfile-cmd-time: ${{ steps.lockfile-cmd-results.outputs.lockfile-time }}
-    strategy:
-      fail-fast: false
-      matrix:
-        shell-type: [ bash, pwsh, cmd ]
+      lockfile-time: ${{ steps.lockfile-results.outputs.lockfile-time }}
+      standard-time: ${{ steps.standard-results.outputs.standard-time }}
+    defaults:
+      run:
+        shell: pwsh
 
     steps:
       - name: Checkout
@@ -37,59 +72,32 @@ jobs:
       - name: Install conda-lock
         run: pipx install conda-lock
 
-      - name: Time Lockfile Environment Creation (Bash)
-        if: matrix.shell-type == 'bash'
-        shell: bash -el {0}
-        run: |
-          start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-          
-          conda-lock install --name lockfile-test-bash conda-lock.yml
-          
-          end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-          duration=$(powershell -Command "($end_time - $start_time) / 10000000")
-          formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "LOCKFILE_TIME=${formatted_duration}" >> $GITHUB_ENV
-
-      - name: Time Lockfile Environment Creation (PowerShell)
-        if: matrix.shell-type == 'pwsh'
-        shell: pwsh
-        run: |
-          $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
-          conda-lock install --name lockfile-test-pwsh conda-lock.yml
-          $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
-          $duration = powershell -Command "($end_time - $start_time) / 10000000"
-          $formatted_duration = [math]::Round($duration, 1)
-          echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
-
-      - name: Time Lockfile Environment Creation (CMD)
-        if: matrix.shell-type == 'cmd'
+      - name: Time Standard Environment Creation
         run: |
           $start_time = [System.DateTime]::Now.Ticks
-          conda-lock install --name lockfile-test-cmd conda-lock.yml
+          conda env create -f environment.yml -n standard-env-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "STANDARD_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Lockfile Environment Creation
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda-lock install --name lockfile-env-test conda-lock.yml
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
           echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
-        shell: pwsh
-
-      - name: Set Lockfile Bash Outputs
-        if: matrix.shell-type == 'bash'
-        id: lockfile-bash-results
+      - name: Set Standard Results
+        id: standard-results
         shell: pwsh
         run: |
-          echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
+          echo "standard-time=$env:STANDARD_TIME" >> $env:GITHUB_OUTPUT
 
-      - name: Set Lockfile PowerShell Outputs
-        if: matrix.shell-type == 'pwsh'
-        id: lockfile-pwsh-results
-        shell: pwsh
-        run: |
-          echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
-
-      - name: Set Lockfile CMD Outputs
-        if: matrix.shell-type == 'cmd'
-        id: lockfile-cmd-results
+      - name: Set Lockfile Results
+        id: lockfile-results
         shell: pwsh
         run: |
           echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
@@ -98,15 +106,14 @@ jobs:
         shell: pwsh
         run: |
           echo "=== CONDA-LOCK PERFORMANCE RESULTS ==="
-          echo "Shell Type: ${{ matrix.shell-type }}"
+          echo "Standard environment.yml Time: $env:STANDARD_TIME seconds"
           echo "Conda-lock Time: $env:LOCKFILE_TIME seconds"
+          echo ""
           echo "This tests conda-lock generated lockfile vs standard environment.yml"
           echo "Conda-lock should provide faster, fully reproducible installs"
 
       - name: Cleanup
-        shell: bash -el {0}
         run: |
           # Cleanup test environments
-          conda env remove -n lockfile-test-bash -y 2>/dev/null || true
-          conda env remove -n lockfile-test-pwsh -y 2>/dev/null || true  
-          conda env remove -n lockfile-test-cmd -y 2>/dev/null || true
+          conda env remove -n standard-env-test -y 2>$null
+          conda env remove -n lockfile-env-test -y 2>$null

@@ -1,0 +1,223 @@
+name: Shell Performance Comparison
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/shell-performance.yml' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-comparison:
+    name: Shell Performance (${{ matrix.shell-type }})
+    runs-on: windows-latest
+    outputs:
+      bash-setup-time: ${{ steps.bash-results.outputs.setup-time }}
+      bash-creation-time: ${{ steps.bash-results.outputs.creation-time }}
+      bash-deletion-time: ${{ steps.bash-results.outputs.deletion-time }}
+      bash-total-time: ${{ steps.bash-results.outputs.total-time }}
+      pwsh-setup-time: ${{ steps.pwsh-results.outputs.setup-time }}
+      pwsh-creation-time: ${{ steps.pwsh-results.outputs.creation-time }}
+      pwsh-deletion-time: ${{ steps.pwsh-results.outputs.deletion-time }}
+      pwsh-total-time: ${{ steps.pwsh-results.outputs.total-time }}
+      cmd-setup-time: ${{ steps.cmd-results.outputs.setup-time }}
+      cmd-creation-time: ${{ steps.cmd-results.outputs.creation-time }}
+      cmd-deletion-time: ${{ steps.cmd-results.outputs.deletion-time }}
+      cmd-total-time: ${{ steps.cmd-results.outputs.total-time }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shell-type: [ bash, pwsh, cmd ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Shell Performance Timing
+        shell: pwsh
+        run: |
+          echo "=== Starting shell performance test with ${{ matrix.shell-type }} ==="
+          echo "SETUP_START_TIME=$(powershell -Command "[System.DateTime]::Now.Ticks")" >> $env:GITHUB_ENV
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+
+      - name: Calculate Setup Time
+        shell: pwsh
+        run: |
+          $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          $duration = powershell -Command "($end_time - $env:SETUP_START_TIME) / 10000000"
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Setup with ${{ matrix.shell-type }} took: $formatted_duration seconds"
+          echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation (Bash)
+        if: matrix.shell-type == 'bash'
+        shell: bash -el {0}
+        run: |
+          start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          conda env create -f environment.yml -n shell-perf-test-bash
+          end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+          formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+          echo "CREATION_TIME=${formatted_duration}" >> $GITHUB_ENV
+
+      - name: Time Environment Creation (PowerShell)
+        if: matrix.shell-type == 'pwsh'
+        shell: pwsh
+        run: |
+          $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          conda env create -f environment.yml -n shell-perf-test-pwsh
+          $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          $duration = powershell -Command "($end_time - $start_time) / 10000000"
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation (CMD)
+        if: matrix.shell-type == 'cmd'
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env create -f environment.yml -n shell-perf-test-cmd
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Time Environment Deletion (Bash)
+        if: matrix.shell-type == 'bash'
+        shell: bash -el {0}
+        run: |
+          start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          conda env remove -n shell-perf-test-bash -y
+          end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+          formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+          echo "DELETION_TIME=${formatted_duration}" >> $GITHUB_ENV
+
+      - name: Time Environment Deletion (PowerShell)
+        if: matrix.shell-type == 'pwsh'
+        shell: pwsh
+        run: |
+          $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          conda env remove -n shell-perf-test-pwsh -y
+          $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          $duration = powershell -Command "($end_time - $start_time) / 10000000"
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Deletion (CMD)
+        if: matrix.shell-type == 'cmd'
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env remove -n shell-perf-test-cmd -y
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Calculate Total Time
+        shell: pwsh
+        run: |
+          try {
+            $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+            $formatted_total = [math]::Round($total, 1)
+            echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
+          } catch {
+            echo "TOTAL_TIME=0" >> $env:GITHUB_ENV
+          }
+
+      # Set outputs for each shell
+      - name: Set Bash Results
+        if: matrix.shell-type == 'bash'
+        id: bash-results
+        shell: pwsh
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set PowerShell Results
+        if: matrix.shell-type == 'pwsh'
+        id: pwsh-results
+        shell: pwsh
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set CMD Results
+        if: matrix.shell-type == 'cmd'
+        id: cmd-results
+        shell: pwsh
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Shell Performance Results
+        shell: pwsh
+        run: |
+          echo "=== SHELL PERFORMANCE RESULTS ==="
+          echo "Shell Type: ${{ matrix.shell-type }}"
+          echo "Setup Time: $env:SETUP_TIME seconds"
+          echo "Creation Time: $env:CREATION_TIME seconds"
+          echo "Deletion Time: $env:DELETION_TIME seconds"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo ""
+          echo "This test compares conda environment performance across different shells"
+          echo "All tests use the same setup-miniconda configuration for fair comparison"
+
+  shell-summary:
+    name: Shell Performance Summary
+    runs-on: windows-latest
+    needs: [shell-comparison]
+    if: always()
+    steps:
+      - name: Generate Shell Comparison Report
+        shell: pwsh
+        run: |
+          echo "=== SHELL PERFORMANCE COMPARISON SUMMARY ==="
+          echo ""
+          echo "| Shell | Setup Time | Creation Time | Deletion Time | Total Time |"
+          echo "|-------|------------|---------------|---------------|------------|"
+          echo "| bash | ${{ needs.shell-comparison.outputs.bash-setup-time }}s | ${{ needs.shell-comparison.outputs.bash-creation-time }}s | ${{ needs.shell-comparison.outputs.bash-deletion-time }}s | **${{ needs.shell-comparison.outputs.bash-total-time }}s** |"
+          echo "| pwsh | ${{ needs.shell-comparison.outputs.pwsh-setup-time }}s | ${{ needs.shell-comparison.outputs.pwsh-creation-time }}s | ${{ needs.shell-comparison.outputs.pwsh-deletion-time }}s | **${{ needs.shell-comparison.outputs.pwsh-total-time }}s** |"
+          echo "| cmd | ${{ needs.shell-comparison.outputs.cmd-setup-time }}s | ${{ needs.shell-comparison.outputs.cmd-creation-time }}s | ${{ needs.shell-comparison.outputs.cmd-deletion-time }}s | **${{ needs.shell-comparison.outputs.cmd-total-time }}s** |"
+          echo ""
+          
+          # Determine fastest shell
+          $bash_total = if ('${{ needs.shell-comparison.outputs.bash-total-time }}' -ne '') { [double]'${{ needs.shell-comparison.outputs.bash-total-time }}' } else { 999 }
+          $pwsh_total = if ('${{ needs.shell-comparison.outputs.pwsh-total-time }}' -ne '') { [double]'${{ needs.shell-comparison.outputs.pwsh-total-time }}' } else { 999 }
+          $cmd_total = if ('${{ needs.shell-comparison.outputs.cmd-total-time }}' -ne '') { [double]'${{ needs.shell-comparison.outputs.cmd-total-time }}' } else { 999 }
+          
+          $fastest_shell = "unknown"
+          $fastest_time = 999
+          
+          if ($bash_total -le $pwsh_total -and $bash_total -le $cmd_total -and $bash_total -lt 999) {
+            $fastest_shell = "bash"
+            $fastest_time = $bash_total
+          } elseif ($pwsh_total -le $cmd_total -and $pwsh_total -lt 999) {
+            $fastest_shell = "pwsh" 
+            $fastest_time = $pwsh_total
+          } elseif ($cmd_total -lt 999) {
+            $fastest_shell = "cmd"
+            $fastest_time = $cmd_total
+          }
+          
+          echo "**Fastest Shell**: $fastest_shell (${fastest_time}s total)"
+          echo ""
+          echo "**Key Insights**:"
+          echo "- Shell choice can impact conda environment performance"
+          echo "- Setup time includes conda initialization for each shell"
+          echo "- Creation/deletion times show shell-specific conda command execution"
+          echo "- Results may vary based on system configuration and conda version"
