@@ -1,0 +1,181 @@
+name: Environment Operations
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/environment-operations.yml' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  existing-environment-update:
+    name: Update Existing Environment (${{ matrix.shell-type }})
+    runs-on: windows-latest
+    outputs:
+      update-bash-time: ${{ steps.update-bash-results.outputs.update-time }}
+      update-pwsh-time: ${{ steps.update-pwsh-results.outputs.update-time }}
+      update-cmd-time: ${{ steps.update-cmd-results.outputs.update-time }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shell-type: [ bash, pwsh, cmd ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Miniconda (creates default test environment)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          auto-activate-base: false
+
+      - name: Time Environment Update (Bash)
+        if: matrix.shell-type == 'bash'
+        shell: bash -el {0}
+        run: |
+          start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          conda activate test
+          conda env update --name test --file environment.yml
+          end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+          formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+          echo "UPDATE_TIME=${formatted_duration}" >> $GITHUB_ENV
+
+      - name: Time Environment Update (PowerShell)
+        if: matrix.shell-type == 'pwsh'
+        shell: pwsh
+        run: |
+          $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          conda env update --name test --file environment.yml
+          $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          $duration = powershell -Command "($end_time - $start_time) / 10000000"
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "UPDATE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Update (CMD)
+        if: matrix.shell-type == 'cmd'
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env update --name test --file environment.yml
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "UPDATE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Set Update Bash Outputs
+        if: matrix.shell-type == 'bash'
+        id: update-bash-results
+        shell: pwsh
+        run: echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set Update PowerShell Outputs
+        if: matrix.shell-type == 'pwsh'
+        id: update-pwsh-results
+        shell: pwsh
+        run: echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set Update CMD Outputs
+        if: matrix.shell-type == 'cmd'
+        id: update-cmd-results
+        shell: pwsh
+        run: echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Environment Update Results
+        shell: pwsh
+        run: |
+          echo "=== EXISTING ENVIRONMENT UPDATE RESULTS ==="
+          echo "Shell Type: ${{ matrix.shell-type }}"
+          echo "Update Time: $env:UPDATE_TIME seconds"
+          echo "This tests updating the existing 'test' environment vs creating new environments"
+
+  integrated-environment-setup:
+    name: Integrated Environment Setup (${{ matrix.shell-type }})
+    runs-on: windows-latest
+    outputs:
+      integrated-bash-setup: ${{ steps.integrated-bash-results.outputs.setup-time }}
+      integrated-pwsh-setup: ${{ steps.integrated-pwsh-results.outputs.setup-time }}
+      integrated-cmd-setup: ${{ steps.integrated-cmd-results.outputs.setup-time }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shell-type: [ bash, pwsh, cmd ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Integrated Setup Timing
+        shell: pwsh
+        run: |
+          echo "=== Starting integrated environment setup timing with ${{ matrix.shell-type }} shell ==="
+          echo "INTEGRATED_START_TIME=$(powershell -Command "[System.DateTime]::Now.Ticks")" >> $env:GITHUB_ENV
+
+      - name: Setup Miniconda with Integrated Environment (Bash)
+        if: matrix.shell-type == 'bash'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          activate-environment: integrated-test-env-bash
+          environment-file: environment.yml
+          auto-activate-base: false
+
+      - name: Setup Miniconda with Integrated Environment (PowerShell)
+        if: matrix.shell-type == 'pwsh'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          activate-environment: integrated-test-env-pwsh
+          environment-file: environment.yml
+          auto-activate-base: false
+
+      - name: Setup Miniconda with Integrated Environment (CMD)
+        if: matrix.shell-type == 'cmd'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          activate-environment: integrated-test-env-cmd
+          environment-file: environment.yml
+          auto-activate-base: false
+
+      - name: Calculate Integrated Setup Time
+        shell: pwsh
+        run: |
+          $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          $duration = powershell -Command "($end_time - $env:INTEGRATED_START_TIME) / 10000000"
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Integrated setup with ${{ matrix.shell-type }} took: $formatted_duration seconds"
+          echo "INTEGRATED_SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Set Integrated Bash Outputs
+        if: matrix.shell-type == 'bash'
+        id: integrated-bash-results
+        shell: pwsh
+        run: |
+          echo "setup-time=$env:INTEGRATED_SETUP_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set Integrated PowerShell Outputs
+        if: matrix.shell-type == 'pwsh'
+        id: integrated-pwsh-results
+        shell: pwsh
+        run: |
+          echo "setup-time=$env:INTEGRATED_SETUP_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set Integrated CMD Outputs
+        if: matrix.shell-type == 'cmd'
+        id: integrated-cmd-results
+        shell: pwsh
+        run: |
+          echo "setup-time=$env:INTEGRATED_SETUP_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Integrated Setup Results
+        shell: pwsh
+        run: |
+          echo "=== INTEGRATED ENVIRONMENT SETUP RESULTS ==="
+          echo "Shell Type: ${{ matrix.shell-type }}"
+          echo "Total Setup Time (Miniconda + Environment): $env:INTEGRATED_SETUP_TIME seconds"
+          echo "This includes both Miniconda installation and environment creation in one step"

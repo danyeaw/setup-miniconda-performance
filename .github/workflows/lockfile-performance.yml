@@ -1,0 +1,112 @@
+name: Lockfile Performance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/lockfile-performance.yml' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile-performance:
+    name: Lockfile Performance (${{ matrix.shell-type }})
+    runs-on: windows-latest
+    outputs:
+      lockfile-bash-time: ${{ steps.lockfile-bash-results.outputs.lockfile-time }}
+      lockfile-pwsh-time: ${{ steps.lockfile-pwsh-results.outputs.lockfile-time }}
+      lockfile-cmd-time: ${{ steps.lockfile-cmd-results.outputs.lockfile-time }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shell-type: [ bash, pwsh, cmd ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Miniconda for Lockfile Test
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          auto-activate-base: false
+          channels: conda-forge,defaults
+
+      - name: Install conda-lock
+        run: pipx install conda-lock
+
+      - name: Time Lockfile Environment Creation (Bash)
+        if: matrix.shell-type == 'bash'
+        shell: bash -el {0}
+        run: |
+          start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          
+          conda-lock install --name lockfile-test-bash conda-lock.yml
+          
+          end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+          formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+          echo "LOCKFILE_TIME=${formatted_duration}" >> $GITHUB_ENV
+
+      - name: Time Lockfile Environment Creation (PowerShell)
+        if: matrix.shell-type == 'pwsh'
+        shell: pwsh
+        run: |
+          $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          conda-lock install --name lockfile-test-pwsh conda-lock.yml
+          $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
+          $duration = powershell -Command "($end_time - $start_time) / 10000000"
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Lockfile Environment Creation (CMD)
+        if: matrix.shell-type == 'cmd'
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda-lock install --name lockfile-test-cmd conda-lock.yml
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+        shell: pwsh
+
+      - name: Set Lockfile Bash Outputs
+        if: matrix.shell-type == 'bash'
+        id: lockfile-bash-results
+        shell: pwsh
+        run: |
+          echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set Lockfile PowerShell Outputs
+        if: matrix.shell-type == 'pwsh'
+        id: lockfile-pwsh-results
+        shell: pwsh
+        run: |
+          echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Set Lockfile CMD Outputs
+        if: matrix.shell-type == 'cmd'
+        id: lockfile-cmd-results
+        shell: pwsh
+        run: |
+          echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Lockfile Performance Results
+        shell: pwsh
+        run: |
+          echo "=== CONDA-LOCK PERFORMANCE RESULTS ==="
+          echo "Shell Type: ${{ matrix.shell-type }}"
+          echo "Conda-lock Time: $env:LOCKFILE_TIME seconds"
+          echo "This tests conda-lock generated lockfile vs standard environment.yml"
+          echo "Conda-lock should provide faster, fully reproducible installs"
+
+      - name: Cleanup
+        shell: bash -el {0}
+        run: |
+          # Cleanup test environments
+          conda env remove -n lockfile-test-bash -y 2>/dev/null || true
+          conda env remove -n lockfile-test-pwsh -y 2>/dev/null || true  
+          conda env remove -n lockfile-test-cmd -y 2>/dev/null || true

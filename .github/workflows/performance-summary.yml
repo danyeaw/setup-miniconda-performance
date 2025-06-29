@@ -1,0 +1,241 @@
+name: Performance Summary
+
+on:
+  workflow_dispatch:
+    inputs:
+      run-all-tests:
+        description: 'Run all performance tests first'
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-all-tests:
+    name: Run All Performance Tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.run-all-tests == 'true' || github.event_name == 'schedule' }}
+    steps:
+      - name: Trigger Core Setup Comparison
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'core-setup-comparison.yml',
+              ref: 'main'
+            });
+
+      - name: Trigger Environment Operations
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'environment-operations.yml',
+              ref: 'main'
+            });
+
+      - name: Trigger Caching Performance
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'caching-performance.yml',
+              ref: 'main'
+            });
+
+      - name: Trigger Solver Optimization
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'solver-optimization.yml',
+              ref: 'main'
+            });
+
+      - name: Trigger Lockfile Performance
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'lockfile-performance.yml',
+              ref: 'main'
+            });
+
+      - name: Wait for tests to complete
+        run: |
+          echo "Waiting 10 minutes for all tests to complete..."
+          sleep 600
+
+  generate-summary:
+    name: Generate Performance Summary
+    runs-on: ubuntu-latest
+    needs: [run-all-tests]
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get Latest Workflow Runs
+        id: get-runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const workflows = [
+              'core-setup-comparison.yml',
+              'environment-operations.yml', 
+              'caching-performance.yml',
+              'solver-optimization.yml',
+              'lockfile-performance.yml'
+            ];
+            
+            const results = {};
+            
+            for (const workflow of workflows) {
+              try {
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: workflow,
+                  status: 'completed',
+                  per_page: 1
+                });
+            
+                if (runs.data.workflow_runs.length > 0) {
+                  const run = runs.data.workflow_runs[0];
+                  results[workflow] = {
+                    id: run.id,
+                    status: run.conclusion,
+                    created_at: run.created_at,
+                    html_url: run.html_url
+                  };
+                }
+              } catch (error) {
+                console.log(`No runs found for ${workflow}: ${error.message}`);
+                results[workflow] = { status: 'not_found' };
+              }
+            }
+            
+            core.setOutput('results', JSON.stringify(results));
+
+      - name: Create Performance Report
+        env:
+          WORKFLOW_RESULTS: ${{ steps.get-runs.outputs.results }}
+        run: |
+          echo "# Miniconda Performance Summary" > performance-summary.md
+          echo "" >> performance-summary.md
+          echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> performance-summary.md
+          echo "" >> performance-summary.md
+          
+          echo "## Test Status Overview" >> performance-summary.md
+          echo "| Workflow | Status | Last Run | Link |" >> performance-summary.md
+          echo "|----------|--------|----------|------|" >> performance-summary.md
+          
+          # Parse the JSON results
+          echo '${{ steps.get-runs.outputs.results }}' | jq -r '
+            to_entries[] | 
+            "| " + (.key | gsub("\\.yml$"; "")) + " | " + 
+            .value.status + " | " + 
+            (if .value.created_at then (.value.created_at | split("T")[0]) else "N/A" end) + " | " +
+            (if .value.html_url then "[View](" + .value.html_url + ")" else "N/A" end) + " |"
+          ' >> performance-summary.md
+          
+          echo "" >> performance-summary.md
+          echo "## Key Performance Areas" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "### 🏁 Core Setup Comparison" >> performance-summary.md
+          echo "- **Purpose**: Compare native runner conda vs setup-miniconda action" >> performance-summary.md
+          echo "- **Tests**: Setup timing, environment creation/deletion across bash/pwsh/cmd" >> performance-summary.md
+          echo "- **Key Metric**: Total time for complete environment lifecycle" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "### 🔄 Environment Operations" >> performance-summary.md
+          echo "- **Purpose**: Test environment updates and integrated setup" >> performance-summary.md
+          echo "- **Tests**: Updating existing environments, integrated setup timing" >> performance-summary.md
+          echo "- **Key Metric**: Update vs fresh install performance" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "### ⚡ Caching Performance" >> performance-summary.md
+          echo "- **Purpose**: Measure impact of various caching strategies" >> performance-summary.md
+          echo "- **Tests**: Package caching, environment caching, drive optimization" >> performance-summary.md
+          echo "- **Key Metric**: Cache hit speedup ratios" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "### 🚀 Solver Optimization" >> performance-summary.md
+          echo "- **Purpose**: Compare different dependency solvers" >> performance-summary.md
+          echo "- **Tests**: Default libmamba vs mamba vs mamba v1" >> performance-summary.md
+          echo "- **Key Metric**: Environment resolution and installation speed" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "### 🔒 Lockfile Performance" >> performance-summary.md
+          echo "- **Purpose**: Test conda-lock for reproducible environments" >> performance-summary.md
+          echo "- **Tests**: Lockfile installation vs standard environment.yml" >> performance-summary.md
+          echo "- **Key Metric**: Installation speed and reproducibility" >> performance-summary.md
+          echo "" >> performance-summary.md
+          
+          echo "## Running Individual Tests" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "Each test can be run independently:" >> performance-summary.md
+          echo '```bash' >> performance-summary.md
+          echo '# Manual trigger via GitHub CLI' >> performance-summary.md
+          echo 'gh workflow run core-setup-comparison.yml' >> performance-summary.md
+          echo 'gh workflow run environment-operations.yml' >> performance-summary.md
+          echo 'gh workflow run caching-performance.yml' >> performance-summary.md
+          echo 'gh workflow run solver-optimization.yml' >> performance-summary.md
+          echo 'gh workflow run lockfile-performance.yml' >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo '# Or run all tests at once' >> performance-summary.md
+          echo 'gh workflow run performance-summary.yml -f run-all-tests=true' >> performance-summary.md
+          echo '```' >> performance-summary.md
+          
+          echo "" >> performance-summary.md
+          echo "## Recommendations Based on Results" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "*(This section would be populated with insights from the latest test runs)*" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "- **Fastest Base Setup**: Check core-setup-comparison results" >> performance-summary.md
+          echo "- **Best Caching Strategy**: Check caching-performance results" >> performance-summary.md
+          echo "- **Optimal Solver**: Check solver-optimization results" >> performance-summary.md
+          echo "- **Shell Performance**: Cross-reference results across all tests" >> performance-summary.md
+
+      - name: Upload Performance Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-summary-${{ github.run_number }}
+          path: performance-summary.md
+          retention-days: 30
+
+      - name: Create Issue with Summary (if scheduled)
+        if: github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('performance-summary.md', 'utf8');
+            
+            // Create or update issue
+            const title = `Daily Performance Summary - ${new Date().toISOString().split('T')[0]}`;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: summary,
+              labels: ['performance', 'automated']
+            });
+
+      - name: Display Summary
+        run: |
+          echo "=== PERFORMANCE SUMMARY GENERATED ==="
+          cat performance-summary.md

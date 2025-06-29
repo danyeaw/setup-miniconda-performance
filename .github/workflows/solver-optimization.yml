@@ -1,0 +1,101 @@
+name: Solver Optimization
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/solver-optimization.yml' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  solver-performance:
+    name: Solver Performance (${{ matrix.solver }})
+    runs-on: windows-latest
+    outputs:
+      default-solver-time: ${{ steps.default-results.outputs.solver-time }}
+      mamba-solver-time: ${{ steps.mamba-results.outputs.solver-time }}
+      mamba-v1-solver-time: ${{ steps.mamba-v1-results.outputs.solver-time }}
+    defaults:
+      run:
+        shell: bash -el {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        solver: [default, mamba, mamba-v1]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Miniconda - Default Solver
+        if: matrix.solver == 'default'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+
+      - name: Setup Miniconda - Mamba
+        if: matrix.solver == 'mamba'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          auto-update-conda: true
+          mamba-version: "*"
+          channels: conda-forge,defaults
+
+      - name: Setup Miniforge - Mamba v1
+        if: matrix.solver == 'mamba-v1'
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: "24.11.3-2"  # For Mamba 1.5.12
+          auto-update-conda: false
+          use-mamba: true
+          channels: conda-forge,defaults
+
+      - name: Time Solver Performance
+        run: |
+          start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          if [ "${{ matrix.solver }}" = "mamba" ] || [ "${{ matrix.solver }}" = "mamba-v1" ]; then
+            mamba env create -f environment.yml -n solver-perf-test
+          else
+            conda env create -f environment.yml -n solver-perf-test
+          fi
+          end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
+          duration=$(powershell -Command "($end_time - $start_time) / 10000000")
+          formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
+          echo "SOLVER_TIME=${formatted_duration}" >> $GITHUB_ENV
+
+      - name: Set Default Solver Outputs
+        if: matrix.solver == 'default'
+        id: default-results
+        run: |
+          echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+
+      - name: Set Mamba Solver Outputs
+        if: matrix.solver == 'mamba'
+        id: mamba-results
+        run: |
+          echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+
+      - name: Set Mamba v1 Solver Outputs
+        if: matrix.solver == 'mamba-v1'
+        id: mamba-v1-results
+        run: |
+          echo "solver-time=${SOLVER_TIME}" >> $GITHUB_OUTPUT
+
+      - name: Report Solver Optimization Results
+        run: |
+          echo "=== SOLVER OPTIMIZATION RESULTS ==="
+          echo "Solver: ${{ matrix.solver }}"
+          echo "Installation Time: ${SOLVER_TIME} seconds"
+          echo "Compare with 'default' results to see if optimization helps"
+
+      - name: Cleanup
+        run: |
+          if [ "${{ matrix.solver }}" = "mamba" ] || [ "${{ matrix.solver }}" = "mamba-v1" ]; then
+            mamba env remove -n solver-perf-test -y
+          else
+            conda env remove -n solver-perf-test -y
+          fi
