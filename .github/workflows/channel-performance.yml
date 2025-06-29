@@ -50,9 +50,17 @@ jobs:
       - name: Count Available Packages
         run: |
           echo "Searching available packages..."
-          $package_count = (conda search --json | ConvertFrom-Json).PSObject.Properties.Count
+          $search_output = conda search 2>&1 | Where-Object { 
+            $_ -match "^\w+\s+" -and 
+            $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|$)" 
+          }
+          $package_count = ($search_output | Measure-Object).Count
+          
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Available packages in default channels: $package_count"
+          echo "Available packages: $package_count"
+          
+          echo "Sample packages found:"
+          $search_output | Select-Object -First 5 | ForEach-Object { echo "  $_" }
 
       - name: Calculate Total Time
         run: |
@@ -125,21 +133,18 @@ jobs:
 
       - name: Count Available Packages
         run: |
-          echo "Searching available packages in custom channel..."
-          try {
-            $search_result = conda search -c danyeaw --json 2>$null | ConvertFrom-Json
-            if ($search_result -and $search_result.PSObject.Properties.Count -gt 0) {
-              $package_count = $search_result.PSObject.Properties.Count
-              echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-              echo "Available packages in custom channel: $package_count"
-            } else {
-              echo "PACKAGES_FOUND=0" >> $env:GITHUB_ENV
-              echo "No packages found in custom channel (not uploaded yet?)"
-            }
-          } catch {
-            echo "PACKAGES_FOUND=0" >> $env:GITHUB_ENV
-            echo "Could not search custom channel - may not exist yet"
+          echo "Searching available packages..."
+          $search_output = conda search 2>&1 | Where-Object { 
+            $_ -match "^\w+\s+" -and 
+            $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|$)" 
           }
+          $package_count = ($search_output | Measure-Object).Count
+          
+          echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
+          echo "Available packages: $package_count"
+          
+          echo "Sample packages found:"
+          $search_output | Select-Object -First 5 | ForEach-Object { echo "  $_" }
 
       - name: Calculate Total Time
         run: |
@@ -212,10 +217,18 @@ jobs:
 
       - name: Count Available Packages
         run: |
-          echo "Searching available packages in defaults channel..."
-          $package_count = (conda search --json | ConvertFrom-Json).PSObject.Properties.Count
+          echo "Searching available packages..."
+          $search_output = conda search 2>&1 | Where-Object { 
+            $_ -match "^\w+\s+" -and 
+            $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|$)" 
+          }
+          $package_count = ($search_output | Measure-Object).Count
+          
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Available packages in defaults channel: $package_count"
+          echo "Available packages: $package_count"
+          
+          echo "Sample packages found:"
+          $search_output | Select-Object -First 5 | ForEach-Object { echo "  $_" }
 
       - name: Calculate Total Time
         run: |
