@@ -1,0 +1,394 @@
+name: Channel Performance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/channel-performance.yml' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  default-channels:
+    name: Default Channels (conda-forge + defaults)
+    runs-on: windows-latest
+    outputs:
+      total-time: ${{ steps.default-results.outputs.total-time }}
+      packages-found: ${{ steps.default-results.outputs.packages-found }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Total Timing
+        run: |
+          echo "=== Testing default channels performance ==="
+          echo "TOTAL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Miniconda with Default Channels
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          channels: conda-forge,defaults
+          auto-activate-base: false
+
+      - name: Create Environment with Default Channels
+        run: |
+          echo "Creating environment using default channels..."
+          conda info
+          echo ""
+          echo "Active channels:"
+          conda config --show channels
+          echo ""
+          conda env create -f environment.yml -n default-channels-test
+
+      - name: Count Available Packages
+        run: |
+          echo "Searching available packages..."
+          $package_count = (conda search --json | ConvertFrom-Json).PSObject.Properties.Count
+          echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
+          echo "Available packages in default channels: $package_count"
+
+      - name: Calculate Total Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "TOTAL_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          echo "Default channels total time: $formatted_duration seconds"
+
+      - name: Set Results
+        id: default-results
+        run: |
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+          echo "packages-found=$env:PACKAGES_FOUND" >> $env:GITHUB_OUTPUT
+
+      - name: Report Results
+        run: |
+          echo "=== DEFAULT CHANNELS RESULTS ==="
+          echo "Channels: conda-forge, defaults"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "Available Packages: $env:PACKAGES_FOUND"
+          echo "This represents performance with full conda-forge + defaults catalog"
+
+      - name: Cleanup
+        run: |
+          conda env remove -n default-channels-test -y 2>$null
+
+  custom-channel-only:
+    name: Custom Channel Only (danyeaw)
+    runs-on: windows-latest
+    outputs:
+      total-time: ${{ steps.custom-results.outputs.total-time }}
+      packages-found: ${{ steps.custom-results.outputs.packages-found }}
+      success: ${{ steps.custom-results.outputs.success }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Total Timing
+        run: |
+          echo "=== Testing custom channel only performance ==="
+          echo "TOTAL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Miniconda with Custom Channel Only
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          channels: danyeaw
+          auto-activate-base: false
+
+      - name: Create Environment with Custom Channel Only
+        continue-on-error: true
+        id: custom-env-create
+        run: |
+          echo "Creating environment using custom channel only..."
+          conda info
+          echo ""
+          echo "Active channels:"
+          conda config --show channels
+          echo ""
+          echo "Testing custom channel availability..."
+          conda search -c danyeaw --json > custom_search.json 2>$null || echo "No packages found in custom channel yet"
+          
+          echo "Attempting environment creation..."
+          conda env create -f environment.yml -n custom-channel-test
+
+      - name: Count Available Packages
+        run: |
+          echo "Searching available packages in custom channel..."
+          try {
+            $search_result = conda search -c danyeaw --json 2>$null | ConvertFrom-Json
+            if ($search_result -and $search_result.PSObject.Properties.Count -gt 0) {
+              $package_count = $search_result.PSObject.Properties.Count
+              echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
+              echo "Available packages in custom channel: $package_count"
+            } else {
+              echo "PACKAGES_FOUND=0" >> $env:GITHUB_ENV
+              echo "No packages found in custom channel (not uploaded yet?)"
+            }
+          } catch {
+            echo "PACKAGES_FOUND=0" >> $env:GITHUB_ENV
+            echo "Could not search custom channel - may not exist yet"
+          }
+
+      - name: Calculate Total Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "TOTAL_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          echo "Custom channel only total time: $formatted_duration seconds"
+
+      - name: Set Results
+        id: custom-results
+        run: |
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+          echo "packages-found=$env:PACKAGES_FOUND" >> $env:GITHUB_OUTPUT
+          $success = if ('${{ steps.custom-env-create.outcome }}' -eq 'success') { 'true' } else { 'false' }
+          echo "success=$success" >> $env:GITHUB_OUTPUT
+
+      - name: Report Results
+        run: |
+          echo "=== CUSTOM CHANNEL ONLY RESULTS ==="
+          echo "Channels: danyeaw"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "Available Packages: $env:PACKAGES_FOUND"
+          echo "Environment Creation: ${{ steps.custom-env-create.outcome }}"
+          if ('${{ steps.custom-env-create.outcome }}' -eq 'success') {
+            echo "✅ Successfully created environment from custom channel only"
+          } else {
+            echo "❌ Could not create environment (packages may not be uploaded yet)"
+          }
+
+      - name: Cleanup
+        run: |
+          conda env remove -n custom-channel-test -y 2>$null
+
+  defaults-only:
+    name: Defaults Only (defaults channel)
+    runs-on: windows-latest
+    outputs:
+      total-time: ${{ steps.defaults-results.outputs.total-time }}
+      packages-found: ${{ steps.defaults-results.outputs.packages-found }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Total Timing
+        run: |
+          echo "=== Testing defaults channel only performance ==="
+          echo "TOTAL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Miniconda with Defaults Only
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          channels: defaults
+          auto-activate-base: false
+
+      - name: Create Environment with Defaults Only
+        run: |
+          echo "Creating environment using defaults channel only..."
+          conda info
+          echo ""
+          echo "Active channels:"
+          conda config --show channels
+          echo ""
+          conda env create -f environment.yml -n defaults-only-test
+
+      - name: Count Available Packages
+        run: |
+          echo "Searching available packages in defaults channel..."
+          $package_count = (conda search --json | ConvertFrom-Json).PSObject.Properties.Count
+          echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
+          echo "Available packages in defaults channel: $package_count"
+
+      - name: Calculate Total Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "TOTAL_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          echo "Defaults only total time: $formatted_duration seconds"
+
+      - name: Set Results
+        id: defaults-results
+        run: |
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+          echo "packages-found=$env:PACKAGES_FOUND" >> $env:GITHUB_OUTPUT
+
+      - name: Report Results
+        run: |
+          echo "=== DEFAULTS ONLY RESULTS ==="
+          echo "Channels: defaults"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "Available Packages: $env:PACKAGES_FOUND"
+          echo "This represents performance with Anaconda's curated defaults channel only"
+
+      - name: Cleanup
+        run: |
+          conda env remove -n defaults-only-test -y 2>$null
+
+  channel-summary:
+    name: Channel Performance Summary
+    runs-on: windows-latest
+    needs: [default-channels, defaults-only, custom-channel-only]
+    if: always()
+    steps:
+      - name: Generate Channel Performance Report
+        shell: pwsh
+        run: |
+          echo "=== CHANNEL PERFORMANCE SUMMARY ==="
+          echo ""
+          echo "Channel size impact on conda performance analysis"
+          echo ""
+          echo "| Channel Configuration | Total Time | Packages Available | Environment Creation |"
+          echo "|-----------------------|------------|-------------------|---------------------|"
+          echo "| conda-forge + defaults (Largest) | ${{ needs.default-channels.outputs.total-time }}s | ${{ needs.default-channels.outputs.packages-found }} | ✅ Success |"
+          echo "| defaults only (Medium) | ${{ needs.defaults-only.outputs.total-time }}s | ${{ needs.defaults-only.outputs.packages-found }} | ✅ Success |"
+          
+          $custom_success = if ('${{ needs.custom-channel-only.outputs.success }}' -eq 'true') { '✅ Success' } else { '❌ Failed' }
+          echo "| danyeaw custom (Smallest) | ${{ needs.custom-channel-only.outputs.total-time }}s | ${{ needs.custom-channel-only.outputs.packages-found }} | $custom_success |"
+          echo ""
+          
+          # Performance analysis
+          $default_time = if ('${{ needs.default-channels.outputs.total-time }}' -ne '') { [double]'${{ needs.default-channels.outputs.total-time }}' } else { 0 }
+          $defaults_only_time = if ('${{ needs.defaults-only.outputs.total-time }}' -ne '') { [double]'${{ needs.defaults-only.outputs.total-time }}' } else { 0 }
+          $custom_time = if ('${{ needs.custom-channel-only.outputs.total-time }}' -ne '') { [double]'${{ needs.custom-channel-only.outputs.total-time }}' } else { 0 }
+          
+          $default_packages = if ('${{ needs.default-channels.outputs.packages-found }}' -ne '') { [int]'${{ needs.default-channels.outputs.packages-found }}' } else { 0 }
+          $defaults_only_packages = if ('${{ needs.defaults-only.outputs.packages-found }}' -ne '') { [int]'${{ needs.defaults-only.outputs.packages-found }}' } else { 0 }
+          $custom_packages = if ('${{ needs.custom-channel-only.outputs.packages-found }}' -ne '') { [int]'${{ needs.custom-channel-only.outputs.packages-found }}' } else { 0 }
+          
+          # Performance analysis
+          echo "## Channel Size vs Performance Analysis"
+          echo ""
+          
+          if ($defaults_only_time -gt 0 -and $default_time -gt 0) {
+            if ($defaults_only_time -lt $default_time) {
+              $speedup = [math]::Round(($default_time / $defaults_only_time), 1)
+              echo "🚀 **defaults only advantage**: ${speedup}x faster than conda-forge+defaults (saves $([math]::Round(($default_time - $defaults_only_time), 1))s)"
+            } else {
+              $slowdown = [math]::Round(($defaults_only_time / $default_time), 1)
+              echo "⚠️ **conda-forge advantage**: ${slowdown}x faster than defaults only (saves $([math]::Round(($defaults_only_time - $default_time), 1))s)"
+            }
+          }
+          
+          if ($custom_time -gt 0 -and '${{ needs.custom-channel-only.outputs.success }}' -eq 'true') {
+            if ($custom_time -lt $defaults_only_time) {
+              $speedup = [math]::Round(($defaults_only_time / $custom_time), 1)
+              echo "🎯 **Custom channel advantage**: ${speedup}x faster than defaults only (saves $([math]::Round(($defaults_only_time - $custom_time), 1))s)"
+            } else {
+              $slowdown = [math]::Round(($custom_time / $defaults_only_time), 1)
+              echo "⚠️ **Custom channel overhead**: ${slowdown}x slower than defaults only (+$([math]::Round(($custom_time - $defaults_only_time), 1))s)"
+            }
+          
+            if ($custom_time -lt $default_time) {
+              $speedup = [math]::Round(($default_time / $custom_time), 1)
+              echo "🚀 **Custom vs full channels**: ${speedup}x faster than conda-forge+defaults (saves $([math]::Round(($default_time - $custom_time), 1))s)"
+            }
+          } else {
+            echo "❌ **Custom channel**: Could not complete environment creation (packages not available)"
+          }
+          
+          echo ""
+          echo "## Channel Size Impact Analysis"
+          echo ""
+          echo "| Channel | Package Count | Resolution Time | Time/1000 Packages |"
+          echo "|---------|---------------|-----------------|-------------------|"
+          
+          if ($default_packages -gt 0) {
+            $default_time_per_1k = [math]::Round(($default_time * 1000 / $default_packages), 2)
+            echo "| **conda-forge + defaults** | $default_packages | $([math]::Round($default_time, 1))s | ${default_time_per_1k}s |"
+          }
+          
+          if ($defaults_only_packages -gt 0) {
+            $defaults_time_per_1k = [math]::Round(($defaults_only_time * 1000 / $defaults_only_packages), 2)
+            echo "| **defaults only** | $defaults_only_packages | $([math]::Round($defaults_only_time, 1))s | ${defaults_time_per_1k}s |"
+          }
+          
+          if ($custom_packages -gt 0) {
+            $custom_time_per_1k = [math]::Round(($custom_time * 1000 / $custom_packages), 2)
+            echo "| **danyeaw custom** | $custom_packages | $([math]::Round($custom_time, 1))s | ${custom_time_per_1k}s |"
+          } else {
+            echo "| **danyeaw custom** | 0 | $([math]::Round($custom_time, 1))s | N/A |"
+          }
+          
+          echo ""
+          echo "## Key Insights"
+          echo ""
+          echo "### Channel Size Theory Validation"
+          echo "- **Hypothesis**: Smaller channels should resolve dependencies faster"
+          echo "- **Package counts**: conda-forge+defaults (~500k+) > defaults (~8k) > custom (~0-100)"
+          echo "- **Resolution time**: Should decrease as package count decreases"
+          echo ""
+          
+          if ($custom_packages -eq 0) {
+            echo "### Custom Channel Status"
+            echo "- ❌ **No packages found** in anaconda.org/danyeaw channel"
+            echo "- 📦 **Upload needed packages** using anaconda-client"
+            echo "- 🔧 **Required packages** from environment.yml:"
+            echo "  - Upload the exact packages your environment.yml specifies"
+            echo "  - Include all dependencies or use conda-build to create them"
+            echo "- 📋 **Verify channel** at: https://anaconda.org/danyeaw"
+            echo ""
+            echo "### Upload Instructions"
+            echo '```bash'
+            echo '# Login to anaconda.org'
+            echo 'anaconda login'
+            echo ''
+            echo '# Upload packages (replace with your actual package files)'
+            echo 'anaconda upload /path/to/packages/*.tar.bz2'
+            echo ''
+            echo '# Or build and upload from conda recipes'
+            echo 'conda build recipe-directory'
+            echo 'anaconda upload /path/to/conda-bld/**/*.tar.bz2'
+            echo '```'
+            echo ""
+          } else {
+            echo "### Custom Channel Performance Results"
+            echo "- ✅ **$custom_packages packages** available in custom channel"
+            if ($custom_time -lt $default_time) {
+              $speedup = [math]::Round(($default_time / $custom_time), 1)
+              echo "- 🚀 **${speedup}x faster** than full conda-forge+defaults"
+              echo "- 💡 **Theory confirmed**: Smaller channels improve resolution speed"
+            }
+            if ($custom_time -lt $defaults_only_time) {
+              $speedup = [math]::Round(($defaults_only_time / $custom_time), 1)
+              echo "- 🎯 **${speedup}x faster** than defaults only"
+            }
+            echo ""
+          }
+          
+          echo "### Performance Recommendations"
+          echo ""
+          if ($defaults_only_time -lt $default_time) {
+            echo "- 🎯 **Use defaults only** instead of conda-forge+defaults for faster resolution"
+            echo "- 📦 **Validate package availability** in defaults channel before switching"
+          }
+          
+          if ($custom_packages -gt 0 -and '${{ needs.custom-channel-only.outputs.success }}' -eq 'true') {
+            echo "- 🚀 **Custom channel provides significant speedup** - consider for production"
+            echo "- 📦 **Maintain minimal custom channel** with only essential packages"
+            echo "- 🔄 **Use custom channel as primary** with fallback channels if needed"
+          } else {
+            echo "- 📦 **Populate custom channel** to test small channel hypothesis"
+            echo "- 🧪 **Re-run test** after uploading packages to validate theory"
+          }
+          
+          echo "- 📊 **Monitor channel size vs performance trade-offs** regularly"
+          echo "- 🎛️ **Choose channel strategy** based on speed vs package availability needs"

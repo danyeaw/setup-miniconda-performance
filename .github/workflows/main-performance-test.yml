@@ -16,6 +16,7 @@ on:
           - solver-optimization
           - lockfile-performance
           - shell-performance
+          - channel-performance
       generate-summary:
         description: 'Generate summary report after tests'
         required: false
@@ -53,7 +54,8 @@ jobs:
               'caching-performance': 'caching-performance.yml',
               'solver-optimization': 'solver-optimization.yml',
               'lockfile-performance': 'lockfile-performance.yml',
-              'shell-performance': 'shell-performance.yml'
+              'shell-performance': 'shell-performance.yml',
+              'channel-performance': 'channel-performance.yml'
             };
             
             const triggeredWorkflows = [];
@@ -118,7 +120,8 @@ jobs:
               'caching-performance': 'caching-performance.yml',
               'solver-optimization': 'solver-optimization.yml',
               'lockfile-performance': 'lockfile-performance.yml',
-              'shell-performance': 'shell-performance.yml'
+              'shell-performance': 'shell-performance.yml',
+              'channel-performance': 'channel-performance.yml'
             };
             
             const pollInterval = 60000; // Poll every 60 seconds

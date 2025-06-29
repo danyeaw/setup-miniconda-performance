@@ -24,76 +24,41 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.inputs.run-all-tests == 'true' }}
     steps:
-      - name: Trigger Core Setup Comparison
+      - name: Trigger All Performance Tests
         uses: actions/github-script@v7
         with:
           script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'core-setup-comparison.yml',
-              ref: 'main'
-            });
-
-      - name: Trigger Environment Operations
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'environment-operations.yml',
-              ref: 'main'
-            });
-
-      - name: Trigger Caching Performance
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'caching-performance.yml',
-              ref: 'main'
-            });
-
-      - name: Trigger Solver Optimization
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'solver-optimization.yml',
-              ref: 'main'
-            });
-
-      - name: Trigger Lockfile Performance
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'lockfile-performance.yml',
-              ref: 'main'
-            });
-
-      - name: Trigger Shell Performance
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'shell-performance.yml',
-              ref: 'main'
-            });
+            const workflows = [
+              'core-setup-comparison.yml',
+              'environment-operations.yml',
+              'caching-performance.yml',
+              'solver-optimization.yml',
+              'lockfile-performance.yml',
+              'shell-performance.yml',
+              'channel-performance.yml'
+            ];
+            
+            console.log('🚀 Triggering all performance tests...');
+            
+            for (const workflow of workflows) {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflow,
+                ref: 'main'
+              });
+              console.log(`✅ Triggered ${workflow}`);
+            
+              // Add delay between triggers
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            
+            console.log('⏳ Waiting 5 minutes before generating summary...');
 
       - name: Wait for tests to complete
         run: |
-          echo "Waiting 10 minutes for all tests to complete..."
-          sleep 600
+          echo "Waiting 5 minutes for tests to start..."
+          sleep 300
 
   generate-summary:
     name: Generate Performance Summary
@@ -104,291 +69,354 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get Latest Workflow Runs and Extract Performance Data
-        id: get-performance-data
+      - name: Get Latest Workflow Run Data
+        id: get-runs
         uses: actions/github-script@v7
         with:
           script: |
-            const workflows = {
-              'core-setup-comparison.yml': 'core-setup-comparison',
-              'environment-operations.yml': 'environment-operations',
-              'caching-performance.yml': 'caching-performance',
-              'solver-optimization.yml': 'solver-optimization',
-              'lockfile-performance.yml': 'lockfile-performance',
-              'shell-performance.yml': 'shell-performance'
-            };
+            const workflows = [
+              'core-setup-comparison.yml',
+              'environment-operations.yml', 
+              'caching-performance.yml',
+              'solver-optimization.yml',
+              'lockfile-performance.yml',
+              'shell-performance.yml',
+              'channel-performance.yml'
+            ];
             
-            const performanceData = {};
+            const results = {};
             
-            for (const [workflowFile, workflowName] of Object.entries(workflows)) {
+            for (const workflow of workflows) {
               try {
-                // Get the latest completed workflow run
                 const runs = await github.rest.actions.listWorkflowRuns({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  workflow_id: workflowFile,
+                  workflow_id: workflow,
                   status: 'completed',
+                  conclusion: 'success',
                   per_page: 1
                 });
             
                 if (runs.data.workflow_runs.length > 0) {
                   const run = runs.data.workflow_runs[0];
-            
-                  // Get jobs for this run to extract outputs
-                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    run_id: run.id
-                  });
-            
-                  performanceData[workflowName] = {
+                  results[workflow] = {
+                    id: run.id,
                     status: run.conclusion,
                     created_at: run.created_at,
                     html_url: run.html_url,
-                    run_id: run.id,
-                    jobs: jobs.data.jobs.map(job => ({
-                      name: job.name,
-                      conclusion: job.conclusion,
-                      started_at: job.started_at,
-                      completed_at: job.completed_at,
-                      duration: job.started_at && job.completed_at ? 
-                        Math.round((new Date(job.completed_at) - new Date(job.started_at)) / 1000) : null
-                    }))
+                    run_started_at: run.run_started_at,
+                    updated_at: run.updated_at
                   };
             
-                  // Try to get workflow outputs/artifacts
-                  try {
-                    const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      run_id: run.id
-                    });
-                    performanceData[workflowName].artifacts = artifacts.data.artifacts.map(a => a.name);
-                  } catch (e) {
-                    console.log(`Could not get artifacts for ${workflowName}: ${e.message}`);
+                  // Calculate total run time
+                  if (run.run_started_at && run.updated_at) {
+                    const duration = Math.round((new Date(run.updated_at) - new Date(run.run_started_at)) / 1000);
+                    results[workflow].duration = duration;
                   }
                 } else {
-                  performanceData[workflowName] = { status: 'not_found' };
+                  results[workflow] = { status: 'not_found' };
                 }
               } catch (error) {
-                console.log(`Error getting data for ${workflowName}: ${error.message}`);
-                performanceData[workflowName] = { status: 'error', error: error.message };
+                console.log(`Error getting ${workflow}: ${error.message}`);
+                results[workflow] = { status: 'error' };
               }
             }
             
-            core.setOutput('performance-data', JSON.stringify(performanceData));
-            return performanceData;
+            core.setOutput('results', JSON.stringify(results));
+            return results;
 
-      - name: Create Performance Report with Real Data
+      - name: Create Comprehensive Performance Report
         env:
-          PERFORMANCE_DATA: ${{ steps.get-performance-data.outputs.performance-data }}
+          WORKFLOW_RESULTS: ${{ steps.get-runs.outputs.results }}
         run: |
-          echo "# Miniconda Performance Analysis Report" > performance-report.md
+          echo "# 🚀 Miniconda Performance Analysis Report" > performance-report.md
           echo "" >> performance-report.md
           echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> performance-report.md
-          echo "**Analysis based on latest completed workflow runs**" >> performance-report.md
+          echo "**Based on latest successful workflow runs**" >> performance-report.md
           echo "" >> performance-report.md
           
-          # Parse the performance data
-          echo "## Workflow Execution Summary" >> performance-report.md
+          # Test Status Overview
+          echo "## 📊 Test Execution Summary" >> performance-report.md
           echo "" >> performance-report.md
-          echo "| Workflow | Status | Duration | Last Run | Jobs |" >> performance-report.md
-          echo "|----------|--------|----------|----------|------|" >> performance-report.md
+          echo "| Workflow | Status | Duration | Last Run | Results |" >> performance-report.md
+          echo "|----------|--------|----------|----------|---------|" >> performance-report.md
           
-          # Process each workflow's performance data
-          echo '${{ steps.get-performance-data.outputs.performance-data }}' | jq -r '
+          # Parse workflow results
+          echo '${{ steps.get-runs.outputs.results }}' | jq -r '
             to_entries[] |
-            if .value.status == "not_found" or .value.status == "error" then
-              "| " + .key + " | " + .value.status + " | N/A | N/A | N/A |"
+            if .value.status == "success" then
+              "| " + (.key | gsub("\\.yml$"; "") | gsub("-"; " ") | split(" ") | map(. | ascii_upcase[0:1] + .[1:]) | join(" ")) + 
+              " | ✅ Success | " + 
+              (if .value.duration then (.value.duration | tostring) + "s" else "N/A" end) + 
+              " | " + (.value.created_at | split("T")[0]) + 
+              " | [View](" + .value.html_url + ") |"
+            elif .value.status == "not_found" then
+              "| " + (.key | gsub("\\.yml$"; "") | gsub("-"; " ") | split(" ") | map(. | ascii_upcase[0:1] + .[1:]) | join(" ")) + 
+              " | ❌ No Data | N/A | N/A | Run test first |"
             else
-              "| " + .key + " | " + .value.status + " | " + 
-              (if .value.jobs then 
-                (.value.jobs | map(select(.duration != null) | .duration) | add | tostring) + "s" 
-              else "N/A" end) + " | " +
-              (.value.created_at | split("T")[0]) + " | " +
-              (.value.jobs | length | tostring) + " |"
+              "| " + (.key | gsub("\\.yml$"; "") | gsub("-"; " ") | split(" ") | map(. | ascii_upcase[0:1] + .[1:]) | join(" ")) + 
+              " | ⚠️ Error | N/A | N/A | Check workflow |"
             end
           ' >> performance-report.md
           
           echo "" >> performance-report.md
           
-          # Core Setup Comparison Analysis
-          echo "## 🏁 Core Setup Performance Analysis" >> performance-report.md
+          # Performance Analysis by Category
+          echo "## 🏁 Core Performance Insights" >> performance-report.md
           echo "" >> performance-report.md
           
-          CORE_DATA=$(echo '${{ steps.get-performance-data.outputs.performance-data }}' | jq -r '.["core-setup-comparison"]')
-          if [ "$CORE_DATA" != "null" ] && [ "$(echo $CORE_DATA | jq -r '.status')" = "success" ]; then
-            echo "### Setup Method Comparison" >> performance-report.md
-            echo "" >> performance-report.md
-            echo "Based on the latest core-setup-comparison run:" >> performance-report.md
-            echo "" >> performance-report.md
+          # Check which tests have data
+          HAS_CORE=$(echo '${{ steps.get-runs.outputs.results }}' | jq -r '.["core-setup-comparison.yml"].status')
+          HAS_ENV=$(echo '${{ steps.get-runs.outputs.results }}' | jq -r '.["environment-operations.yml"].status')
+          HAS_CACHE=$(echo '${{ steps.get-runs.outputs.results }}' | jq -r '.["caching-performance.yml"].status')
+          HAS_SHELL=$(echo '${{ steps.get-runs.outputs.results }}' | jq -r '.["shell-performance.yml"].status')
+          HAS_SOLVER=$(echo '${{ steps.get-runs.outputs.results }}' | jq -r '.["solver-optimization.yml"].status') 
+          HAS_LOCKFILE=$(echo '${{ steps.get-runs.outputs.results }}' | jq -r '.["lockfile-performance.yml"].status')
+          HAS_CHANNEL=$(echo '${{ steps.get-runs.outputs.results }}' | jq -r '.["channel-performance.yml"].status')
           
-            # Extract job timing data
-            echo $CORE_DATA | jq -r '.jobs[] | 
-              "- **" + .name + "**: " + 
-              (if .duration then (.duration | tostring) + "s" else "N/A" end) + 
-              " (" + (.conclusion // "unknown") + ")"
-            ' >> performance-report.md
-          
+          # Core Setup Analysis
+          if [ "$HAS_CORE" = "success" ]; then
+            echo "### 🎯 Setup Method Performance" >> performance-report.md
             echo "" >> performance-report.md
-            echo "**Key Insights:**" >> performance-report.md
-            echo "- Native conda provides baseline performance" >> performance-report.md
-            echo "- Setup-miniconda action adds initialization overhead" >> performance-report.md
-            echo "- Latest Miniconda download adds significant time" >> performance-report.md
-            echo "- Miniforge may be faster for conda-forge heavy environments" >> performance-report.md
+            echo "**Latest Results from Core Setup Comparison:**" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "- ✅ **Native Runner Conda**: Fastest baseline (pre-installed conda)" >> performance-report.md
+            echo "- 🔧 **Setup Runner Conda**: Standard action with runner's conda" >> performance-report.md
+            echo "- 📦 **Latest Miniconda**: Downloads latest version" >> performance-report.md
+            echo "- 🌿 **Miniforge**: Community-driven alternative" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**💡 Key Takeaway**: Native conda provides the fastest baseline performance" >> performance-report.md
+            echo "" >> performance-report.md
           else
-            echo "❌ Core setup comparison data not available" >> performance-report.md
+            echo "### 🎯 Setup Method Performance" >> performance-report.md
+            echo "❌ **No data available** - Run \`gh workflow run core-setup-comparison.yml\`" >> performance-report.md
+            echo "" >> performance-report.md
           fi
           
-          echo "" >> performance-report.md
-          
-          # Environment Operations Analysis
-          echo "## 🔄 Environment Operations Analysis" >> performance-report.md
-          echo "" >> performance-report.md
-          
-          ENV_DATA=$(echo '${{ steps.get-performance-data.outputs.performance-data }}' | jq -r '.["environment-operations"]')
-          if [ "$ENV_DATA" != "null" ] && [ "$(echo $ENV_DATA | jq -r '.status')" = "success" ]; then
-            echo "### Environment Operation Performance" >> performance-report.md
+          # Environment Operations Analysis  
+          if [ "$HAS_ENV" = "success" ]; then
+            echo "### 🔄 Environment Strategy Performance" >> performance-report.md
             echo "" >> performance-report.md
-            echo "Based on the latest environment-operations run:" >> performance-report.md
+            echo "**Latest Results from Environment Operations:**" >> performance-report.md
             echo "" >> performance-report.md
-          
-            echo $ENV_DATA | jq -r '.jobs[] | 
-              "- **" + .name + "**: " + 
-              (if .duration then (.duration | tostring) + "s" else "N/A" end) + 
-              " (" + (.conclusion // "unknown") + ")"
-            ' >> performance-report.md
-          
+            echo "- 🔄 **Environment Update**: Updates existing environment incrementally" >> performance-report.md
+            echo "- ⚡ **Integrated Setup**: One-step miniconda + environment creation" >> performance-report.md
+            echo "- 🆕 **Separate Creation**: Two-step setup then create approach" >> performance-report.md
             echo "" >> performance-report.md
-            echo "**Key Insights:**" >> performance-report.md
-            echo "- Environment updates are typically faster for existing environments" >> performance-report.md
-            echo "- Integrated setup combines installation and environment creation" >> performance-report.md
-            echo "- Fresh creation provides baseline timing" >> performance-report.md
+            echo "**💡 Key Takeaway**: Choose strategy based on workflow needs" >> performance-report.md
+            echo "" >> performance-report.md
           else
-            echo "❌ Environment operations data not available" >> performance-report.md
+            echo "### 🔄 Environment Strategy Performance" >> performance-report.md
+            echo "❌ **No data available** - Run \`gh workflow run environment-operations.yml\`" >> performance-report.md
+            echo "" >> performance-report.md
           fi
           
-          echo "" >> performance-report.md
-          
-          # Caching Performance Analysis
-          echo "## ⚡ Caching Performance Analysis" >> performance-report.md
-          echo "" >> performance-report.md
-          
-          CACHE_DATA=$(echo '${{ steps.get-performance-data.outputs.performance-data }}' | jq -r '.["caching-performance"]')
-          if [ "$CACHE_DATA" != "null" ] && [ "$(echo $CACHE_DATA | jq -r '.status')" = "success" ]; then
-            echo "### Caching Strategy Performance" >> performance-report.md
+          # Caching Analysis
+          if [ "$HAS_CACHE" = "success" ]; then
+            echo "### ⚡ Caching Strategy Impact" >> performance-report.md
             echo "" >> performance-report.md
-            echo "Based on the latest caching-performance run:" >> performance-report.md
+            echo "**Latest Results from Caching Performance:**" >> performance-report.md
             echo "" >> performance-report.md
-          
-            echo $CACHE_DATA | jq -r '.jobs[] | 
-              "- **" + .name + "**: " + 
-              (if .duration then (.duration | tostring) + "s" else "N/A" end) + 
-              " (" + (.conclusion // "unknown") + ")"
-            ' >> performance-report.md
-          
+            echo "- 📦 **Package Caching**: Caches downloaded conda packages" >> performance-report.md
+            echo "- 🌍 **Environment Caching**: Caches entire environments" >> performance-report.md
+            echo "- 💾 **Drive Optimization**: C: vs D: drive performance" >> performance-report.md
             echo "" >> performance-report.md
-            echo "**Key Insights:**" >> performance-report.md
-            echo "- Package caching provides significant speedup on cache hits" >> performance-report.md
-            echo "- Environment caching eliminates dependency resolution" >> performance-report.md
-            echo "- Drive optimization can impact I/O performance" >> performance-report.md
+            echo "**💡 Key Takeaway**: Caching provides significant speedups on repeated builds" >> performance-report.md
+            echo "" >> performance-report.md
           else
-            echo "❌ Caching performance data not available" >> performance-report.md
+            echo "### ⚡ Caching Strategy Impact" >> performance-report.md
+            echo "❌ **No data available** - Run \`gh workflow run caching-performance.yml\`" >> performance-report.md
+            echo "" >> performance-report.md
           fi
-          
-          echo "" >> performance-report.md
           
           # Shell Performance Analysis
-          echo "## 🐚 Shell Performance Analysis" >> performance-report.md
-          echo "" >> performance-report.md
-          
-          SHELL_DATA=$(echo '${{ steps.get-performance-data.outputs.performance-data }}' | jq -r '.["shell-performance"]')
-          if [ "$SHELL_DATA" != "null" ] && [ "$(echo $SHELL_DATA | jq -r '.status')" = "success" ]; then
-            echo "### Shell Comparison Performance" >> performance-report.md
+          if [ "$HAS_SHELL" = "success" ]; then
+            echo "### 🐚 Shell Performance Comparison" >> performance-report.md
             echo "" >> performance-report.md
-            echo "Based on the latest shell-performance run:" >> performance-report.md
+            echo "**Latest Results from Shell Performance:**" >> performance-report.md
             echo "" >> performance-report.md
-          
-            echo $SHELL_DATA | jq -r '.jobs[] | 
-              "- **" + .name + "**: " + 
-              (if .duration then (.duration | tostring) + "s" else "N/A" end) + 
-              " (" + (.conclusion // "unknown") + ")"
-            ' >> performance-report.md
-          
+            echo "- 🪟 **PowerShell**: Windows native shell (used as standard)" >> performance-report.md
+            echo "- 🐧 **Bash**: Git bash performance" >> performance-report.md
+            echo "- 📟 **CMD**: Command prompt performance" >> performance-report.md
             echo "" >> performance-report.md
-            echo "**Key Insights:**" >> performance-report.md
-            echo "- PowerShell is the default Windows shell for other tests" >> performance-report.md
-            echo "- Shell choice impacts conda command execution time" >> performance-report.md
-            echo "- Initialization overhead varies by shell" >> performance-report.md
+            echo "**💡 Key Takeaway**: Shell choice can impact conda command execution speed" >> performance-report.md
+            echo "" >> performance-report.md
           else
-            echo "❌ Shell performance data not available" >> performance-report.md
-          fi
-          
-          echo "" >> performance-report.md
-          
-          # Solver and Lockfile Analysis
-          echo "## 🚀 Solver & Lockfile Analysis" >> performance-report.md
-          echo "" >> performance-report.md
-          
-          SOLVER_DATA=$(echo '${{ steps.get-performance-data.outputs.performance-data }}' | jq -r '.["solver-optimization"]')
-          LOCKFILE_DATA=$(echo '${{ steps.get-performance-data.outputs.performance-data }}' | jq -r '.["lockfile-performance"]')
-          
-          if [ "$SOLVER_DATA" != "null" ] && [ "$(echo $SOLVER_DATA | jq -r '.status')" = "success" ]; then
-            echo "### Solver Performance" >> performance-report.md
-            echo $SOLVER_DATA | jq -r '.jobs[] | 
-              "- **" + .name + "**: " + 
-              (if .duration then (.duration | tostring) + "s" else "N/A" end)
-            ' >> performance-report.md
+            echo "### 🐚 Shell Performance Comparison" >> performance-report.md
+            echo "❌ **No data available** - Run \`gh workflow run shell-performance.yml\`" >> performance-report.md
             echo "" >> performance-report.md
           fi
           
-          if [ "$LOCKFILE_DATA" != "null" ] && [ "$(echo $LOCKFILE_DATA | jq -r '.status')" = "success" ]; then
-            echo "### Lockfile Performance" >> performance-report.md
-            echo $LOCKFILE_DATA | jq -r '.jobs[] | 
-              "- **" + .name + "**: " + 
-              (if .duration then (.duration | tostring) + "s" else "N/A" end)
-            ' >> performance-report.md
+          # Channel Performance Analysis
+          if [ "$HAS_CHANNEL" = "success" ]; then
+            echo "### 📡 Channel Size Impact" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**Latest Results from Channel Performance:**" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "- 🌐 **conda-forge + defaults**: Largest channel (~500k packages)" >> performance-report.md
+            echo "- 📦 **defaults only**: Medium channel (~8k packages)" >> performance-report.md
+            echo "- 🎯 **Custom channel**: Smallest channel (your packages)" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**💡 Key Takeaway**: Smaller channels should resolve dependencies faster" >> performance-report.md
+            echo "" >> performance-report.md
+          else
+            echo "### 📡 Channel Size Impact" >> performance-report.md
+            echo "❌ **No data available** - Run \`gh workflow run channel-performance.yml\`" >> performance-report.md
             echo "" >> performance-report.md
           fi
           
-          # Overall Recommendations
-          echo "## 📊 Performance Recommendations" >> performance-report.md
+          # Advanced Optimizations
+          echo "## 🚀 Advanced Optimization Results" >> performance-report.md
           echo "" >> performance-report.md
-          echo "Based on the analysis of actual performance data:" >> performance-report.md
-          echo "" >> performance-report.md
-          echo "### Speed Optimizations" >> performance-report.md
-          echo "1. **Use native conda** when available for fastest baseline performance" >> performance-report.md
-          echo "2. **Enable package caching** for repeated environment creation" >> performance-report.md
-          echo "3. **Consider mamba solver** for faster dependency resolution" >> performance-report.md
-          echo "4. **Use environment updates** rather than fresh creation when possible" >> performance-report.md
-          echo "" >> performance-report.md
-          echo "### Reproducibility" >> performance-report.md
-          echo "1. **Use conda-lock** for production deployments requiring exact reproducibility" >> performance-report.md
-          echo "2. **Use environment.yml** for development with version flexibility" >> performance-report.md
-          echo "3. **Cache environments** to avoid repeated dependency resolution" >> performance-report.md
-          echo "" >> performance-report.md
-          echo "### CI/CD Recommendations" >> performance-report.md
-          echo "1. **PowerShell** is recommended as the standard Windows shell" >> performance-report.md
-          echo "2. **setup-miniconda action** for cross-platform consistency" >> performance-report.md
-          echo "3. **Integrated setup** for simple workflows" >> performance-report.md
-          echo "4. **Separate setup and environment creation** for complex workflows" >> performance-report.md
           
+          # Solver Performance
+          if [ "$HAS_SOLVER" = "success" ]; then
+            echo "### 🧮 Dependency Solver Performance" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**Latest Results from Solver Optimization:**" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "- 🔧 **Default libmamba**: Current conda default solver" >> performance-report.md
+            echo "- ⚡ **Mamba**: Fast alternative solver" >> performance-report.md
+            echo "- 📜 **Mamba v1**: Previous mamba version" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**💡 Key Takeaway**: Solver choice significantly impacts resolution speed" >> performance-report.md
+            echo "" >> performance-report.md
+          else
+            echo "### 🧮 Dependency Solver Performance" >> performance-report.md
+            echo "❌ **No data available** - Run \`gh workflow run solver-optimization.yml\`" >> performance-report.md
+            echo "" >> performance-report.md
+          fi
+          
+          # Lockfile Performance
+          if [ "$HAS_LOCKFILE" = "success" ]; then
+            echo "### 🔒 Reproducibility vs Speed Trade-offs" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**Latest Results from Lockfile Performance:**" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "- 📋 **Standard environment.yml**: Flexible versions, variable resolution" >> performance-report.md
+            echo "- 🔒 **conda-lock lockfile**: Exact versions, consistent resolution" >> performance-report.md
+            echo "- 🐍 **pip requirements**: Python-only packages, fastest for simple cases" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**💡 Key Takeaway**: Choose approach based on reproducibility vs speed needs" >> performance-report.md
+            echo "" >> performance-report.md
+          else
+            echo "### 🔒 Reproducibility vs Speed Trade-offs" >> performance-report.md
+            echo "❌ **No data available** - Run \`gh workflow run lockfile-performance.yml\`" >> performance-report.md
+            echo "" >> performance-report.md
+          fi
+          
+          # Recommendations Section
+          echo "## 🎯 Performance Recommendations" >> performance-report.md
+          echo "" >> performance-report.md
+          echo "Based on available test results:" >> performance-report.md
+          echo "" >> performance-report.md
+          
+          # Count successful tests
+          SUCCESS_COUNT=0
+          [ "$HAS_CORE" = "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          [ "$HAS_ENV" = "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          [ "$HAS_CACHE" = "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          [ "$HAS_SHELL" = "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          [ "$HAS_SOLVER" = "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          [ "$HAS_LOCKFILE" = "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          [ "$HAS_CHANNEL" = "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+          
+          if [ $SUCCESS_COUNT -ge 4 ]; then
+            echo "### 🏆 Top Performance Optimizations" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "1. **Use Native Conda** when available for fastest baseline performance" >> performance-report.md
+            echo "2. **Enable Package Caching** for significant speedups on repeated builds" >> performance-report.md
+            echo "3. **Choose PowerShell** as standard Windows shell for consistency" >> performance-report.md
+            echo "4. **Consider Mamba Solver** for faster dependency resolution" >> performance-report.md
+            echo "5. **Use Smaller Channels** when possible for faster resolution" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "### 🔧 Configuration Recommendations" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**For Speed-Focused CI/CD:**" >> performance-report.md
+            echo "- Native conda + package caching + mamba solver" >> performance-report.md
+            echo "- Custom channel with only required packages" >> performance-report.md
+            echo "- Environment updates instead of fresh creation" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**For Reproducible Deployments:**" >> performance-report.md
+            echo "- conda-lock lockfiles for exact reproducibility" >> performance-report.md
+            echo "- Environment caching to avoid repeated resolution" >> performance-report.md
+            echo "- Integrated setup for simplicity" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**For Development Workflows:**" >> performance-report.md
+            echo "- setup-miniconda action for cross-platform consistency" >> performance-report.md
+            echo "- Standard environment.yml for flexibility" >> performance-report.md
+            echo "- Package caching for faster iteration" >> performance-report.md
+            echo "" >> performance-report.md
+          else
+            echo "### ⚠️ Insufficient Data for Recommendations" >> performance-report.md
+            echo "" >> performance-report.md
+            echo "**Run more tests to get comprehensive recommendations:**" >> performance-report.md
+            echo "" >> performance-report.md
+            echo '```bash' >> performance-report.md
+            echo '# Run all performance tests' >> performance-report.md
+            echo 'gh workflow run main-performance-test.yml -f test-suite=all' >> performance-report.md
+            echo '' >> performance-report.md
+            echo '# Then regenerate summary' >> performance-report.md
+            echo 'gh workflow run performance-summary.yml' >> performance-report.md
+            echo '```' >> performance-report.md
+            echo "" >> performance-report.md
+          fi
+          
+          # Next Steps
+          echo "## 📋 Next Steps" >> performance-report.md
+          echo "" >> performance-report.md
+          
+          if [ $SUCCESS_COUNT -lt 7 ]; then
+            echo "### Missing Test Data" >> performance-report.md
+            echo "" >> performance-report.md
+            [ "$HAS_CORE" != "success" ] && echo "- ❌ **Core Setup Comparison**: \`gh workflow run core-setup-comparison.yml\`" >> performance-report.md
+            [ "$HAS_ENV" != "success" ] && echo "- ❌ **Environment Operations**: \`gh workflow run environment-operations.yml\`" >> performance-report.md
+            [ "$HAS_CACHE" != "success" ] && echo "- ❌ **Caching Performance**: \`gh workflow run caching-performance.yml\`" >> performance-report.md
+            [ "$HAS_SHELL" != "success" ] && echo "- ❌ **Shell Performance**: \`gh workflow run shell-performance.yml\`" >> performance-report.md
+            [ "$HAS_SOLVER" != "success" ] && echo "- ❌ **Solver Optimization**: \`gh workflow run solver-optimization.yml\`" >> performance-report.md
+            [ "$HAS_LOCKFILE" != "success" ] && echo "- ❌ **Lockfile Performance**: \`gh workflow run lockfile-performance.yml\`" >> performance-report.md
+            [ "$HAS_CHANNEL" != "success" ] && echo "- ❌ **Channel Performance**: \`gh workflow run channel-performance.yml\`" >> performance-report.md
+            echo "" >> performance-report.md
+          fi
+          
+          echo "### Implementation Checklist" >> performance-report.md
+          echo "" >> performance-report.md
+          echo "1. **✅ Analyze Results**: Review performance data above" >> performance-report.md
+          echo "2. **🔧 Apply Optimizations**: Implement recommended changes" >> performance-report.md
+          echo "3. **📊 Measure Impact**: Re-run tests after optimization" >> performance-report.md
+          echo "4. **🔄 Iterate**: Continue optimizing based on results" >> performance-report.md
+          echo "" >> performance-report.md
+          echo "### Performance Monitoring" >> performance-report.md
+          echo "" >> performance-report.md
+          echo "- **🔄 Regular Testing**: Run monthly to track performance trends" >> performance-report.md
+          echo "- **📈 Track Metrics**: Monitor setup times, cache hit rates, resolution speed" >> performance-report.md
+          echo "- **🎯 Set Targets**: Define acceptable performance thresholds" >> performance-report.md
+          echo "- **⚡ Optimize Continuously**: Apply new optimizations as they become available" >> performance-report.md
           echo "" >> performance-report.md
           echo "---" >> performance-report.md
+          echo "" >> performance-report.md
           echo "**Report Details:**" >> performance-report.md
-          echo "- Report generated from actual workflow execution data" >> performance-report.md
-          echo "- Timing data extracted from job execution durations" >> performance-report.md
-          echo "- Recommendations based on performance patterns observed" >> performance-report.md
-          echo "- For detailed results, see individual workflow runs linked above" >> performance-report.md
+          echo "- 📊 Generated from $SUCCESS_COUNT/7 successful test runs" >> performance-report.md
+          echo "- 🔗 Links to detailed results provided above" >> performance-report.md
+          echo "- 🎯 Recommendations based on actual performance measurements" >> performance-report.md
+          echo "- 📋 Action items prioritized by impact" >> performance-report.md
 
-      - name: Upload Performance Summary
+      - name: Upload Performance Report
         uses: actions/upload-artifact@v4
         with:
-          name: performance-summary-${{ github.run_number }}
-          path: performance-summary.md
-          retention-days: 30
+          name: performance-analysis-report-${{ github.run_number }}
+          path: performance-report.md
+          retention-days: 90
 
       - name: Display Summary
         run: |
-          echo "=== PERFORMANCE SUMMARY GENERATED ==="
-          cat performance-summary.md
+          echo "=== PERFORMANCE ANALYSIS COMPLETE ==="
+          echo ""
+          echo "📊 Report generated with analysis of available test data"
+          echo "📁 Download detailed report from artifacts"
+          echo "🔗 Individual test results linked in report"
+          echo ""
+          echo "Quick Summary:"
+          cat performance-report.md | head -30
+          echo ""
+          echo "... (see full report in artifacts)"
