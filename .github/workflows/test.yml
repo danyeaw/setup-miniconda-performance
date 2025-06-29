@@ -282,17 +282,6 @@ jobs:
           miniconda-version: "latest"
           auto-activate-base: false
 
-      - name: Check existing test environment
-        shell: bash -el {0}
-        run: |
-          echo "=== Checking existing test environment ==="
-          conda env list
-          conda activate test
-          echo "Test environment Python version:"
-          python --version
-          echo "Existing packages in test environment:"
-          conda list
-
       - name: Time Environment Update (Bash)
         if: matrix.shell-type == 'bash'
         shell: bash -el {0}
@@ -541,8 +530,7 @@ jobs:
           channels: conda-forge,defaults
 
       - name: Install conda-lock
-        shell: bash -el {0}
-        run: conda install conda-lock -c conda-forge -y
+        run: pipx install conda-lock
 
       - name: Time Lockfile Environment Creation (Bash)
         if: matrix.shell-type == 'bash'
