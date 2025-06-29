@@ -1,41 +1,4 @@
-lockfile-summary:
-  name: Lockfile Performance Summary
-  runs-on: windows-latest
-  needs: [lockfile-performance]
-  if: always()
-  steps:
-    - name: Generate Lockfile Comparison Report
-      shell: pwsh
-      run: |
-        echo "=== LOCKFILE PERFORMANCE SUMMARY ==="
-        echo ""
-        echo "| Approach | Installation Time | Reproducibility | Speed |"
-        echo "|----------|-------------------|------------------|-------|"
-        echo "| Standard environment.yml | ${{ needs.lockfile-performance.outputs.standard-time }}s | Flexible versions | Variable |"
-        echo "| conda-lock lockfile | ${{ needs.lockfile-performance.outputs.lockfile-time }}s | Exact versions | Consistent |"
-        echo ""
-        
-        $standard_time = if ('${{ needs.lockfile-performance.outputs.standard-time }}' -ne '') { [double]'${{ needs.lockfile-performance.outputs.standard-time }}' } else { 0 }
-        $lockfile_time = if ('${{ needs.lockfile-performance.outputs.lockfile-time }}' -ne '') { [double]'${{ needs.lockfile-performance.outputs.lockfile-time }}' } else { 0 }
-        
-        if ($standard_time -gt 0 -and $lockfile_time -gt 0) {
-          if ($lockfile_time -lt $standard_time) {
-            $speedup = [math]::Round(($standard_time / $lockfile_time), 1)
-            echo "**Winner**: conda-lock (${speedup}x faster)"
-          } elseif ($standard_time -lt $lockfile_time) {
-            $speedup = [math]::Round(($lockfile_time / $standard_time), 1)
-            echo "**Winner**: Standard environment.yml (${speedup}x faster)"
-          } else {
-            echo "**Result**: Similar performance"
-          }
-        }
-        
-        echo ""
-        echo "**Key Insights**:"
-        echo "- conda-lock provides exact reproducibility with pre-resolved dependencies"
-        echo "- Standard environment.yml allows version flexibility but variable resolution"
-        echo "- Lockfiles should be faster due to skipped dependency resolution"
-        echo "- Trade-off between speed/reproducibility vs flexibility"name: Lockfile Performance
+name: Lockfile Performance
 
 on:
   workflow_dispatch:
@@ -48,11 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lockfile-performance:
-    name: Lockfile Performance Test
+  standard-environment:
+    name: Standard Environment Creation
     runs-on: windows-latest
     outputs:
-      lockfile-time: ${{ steps.lockfile-results.outputs.lockfile-time }}
       standard-time: ${{ steps.standard-results.outputs.standard-time }}
     defaults:
       run:
@@ -62,7 +24,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Miniconda for Lockfile Test
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          auto-activate-base: false
+          channels: conda-forge,defaults
+
+      - name: Time Standard Environment Creation
+        run: |
+          echo "=== Testing standard environment.yml approach ==="
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env create -f environment.yml -n standard-env-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "STANDARD_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          echo "Standard environment creation took: $formatted_duration seconds"
+
+      - name: Set Standard Results
+        id: standard-results
+        run: |
+          echo "standard-time=$env:STANDARD_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Standard Results
+        run: |
+          echo "=== STANDARD ENVIRONMENT RESULTS ==="
+          echo "Creation Time: $env:STANDARD_TIME seconds"
+          echo "Method: conda env create -f environment.yml"
+          echo "Reproducibility: Flexible versions (latest compatible)"
+
+      - name: Cleanup
+        run: |
+          conda env remove -n standard-env-test -y 2>$null
+
+  lockfile-environment:
+    name: Lockfile Environment Creation
+    runs-on: windows-latest
+    outputs:
+      lockfile-time: ${{ steps.lockfile-results.outputs.lockfile-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniconda-version: "latest"
@@ -70,50 +79,190 @@ jobs:
           channels: conda-forge,defaults
 
       - name: Install conda-lock
-        run: pipx install conda-lock
-
-      - name: Time Standard Environment Creation
         run: |
-          $start_time = [System.DateTime]::Now.Ticks
-          conda env create -f environment.yml -n standard-env-test
-          $end_time = [System.DateTime]::Now.Ticks
-          $duration = ($end_time - $start_time) / 10000000
-          $formatted_duration = [math]::Round($duration, 1)
-          echo "STANDARD_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          echo "=== Installing conda-lock ==="
+          pipx install conda-lock
+
+      - name: Generate Lockfile (if missing)
+        run: |
+          if (!(Test-Path "conda-lock.yml")) {
+            echo "=== Generating lockfile from environment.yml ==="
+            conda-lock -f environment.yml -p win-64
+          } else {
+            echo "=== Using existing conda-lock.yml ==="
+          }
+          
+          if (Test-Path "conda-lock.yml") {
+            echo "Lockfile size: $((Get-Item conda-lock.yml).Length) bytes"
+            echo "Lockfile entries: $((Get-Content conda-lock.yml | Measure-Object -Line).Lines) lines"
+          }
 
       - name: Time Lockfile Environment Creation
         run: |
+          echo "=== Testing conda-lock approach ==="
           $start_time = [System.DateTime]::Now.Ticks
           conda-lock install --name lockfile-env-test conda-lock.yml
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
           echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
-
-      - name: Set Standard Results
-        id: standard-results
-        shell: pwsh
-        run: |
-          echo "standard-time=$env:STANDARD_TIME" >> $env:GITHUB_OUTPUT
+          echo "Lockfile environment creation took: $formatted_duration seconds"
 
       - name: Set Lockfile Results
         id: lockfile-results
-        shell: pwsh
         run: |
           echo "lockfile-time=$env:LOCKFILE_TIME" >> $env:GITHUB_OUTPUT
 
-      - name: Report Lockfile Performance Results
-        shell: pwsh
+      - name: Report Lockfile Results
         run: |
-          echo "=== CONDA-LOCK PERFORMANCE RESULTS ==="
-          echo "Standard environment.yml Time: $env:STANDARD_TIME seconds"
-          echo "Conda-lock Time: $env:LOCKFILE_TIME seconds"
-          echo ""
-          echo "This tests conda-lock generated lockfile vs standard environment.yml"
-          echo "Conda-lock should provide faster, fully reproducible installs"
+          echo "=== LOCKFILE ENVIRONMENT RESULTS ==="
+          echo "Creation Time: $env:LOCKFILE_TIME seconds"
+          echo "Method: conda-lock install --name env conda-lock.yml"
+          echo "Reproducibility: Exact versions (fully pinned)"
 
       - name: Cleanup
         run: |
-          # Cleanup test environments
-          conda env remove -n standard-env-test -y 2>$null
           conda env remove -n lockfile-env-test -y 2>$null
+
+  pip-requirements:
+    name: Pip Requirements (Alternative)
+    runs-on: windows-latest
+    outputs:
+      pip-time: ${{ steps.pip-results.outputs.pip-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          auto-activate-base: false
+
+      - name: Create requirements.txt (if missing)
+        run: |
+          if (!(Test-Path "requirements.txt")) {
+            echo "=== Generating basic requirements.txt ==="
+            @"
+          numpy
+          pandas
+          matplotlib
+          scipy
+          "@ | Out-File -FilePath "requirements.txt" -Encoding UTF8
+          } else {
+            echo "=== Using existing requirements.txt ==="
+          }
+          echo "Requirements content:"
+          Get-Content requirements.txt
+
+      - name: Time Pip Requirements Installation
+        run: |
+          echo "=== Testing pip requirements approach ==="
+          $start_time = [System.DateTime]::Now.Ticks
+          conda create -n pip-env-test python=3.11 -y
+          conda activate pip-env-test
+          pip install -r requirements.txt
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "PIP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          echo "Pip requirements installation took: $formatted_duration seconds"
+
+      - name: Set Pip Results
+        id: pip-results
+        run: |
+          echo "pip-time=$env:PIP_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Pip Results
+        run: |
+          echo "=== PIP REQUIREMENTS RESULTS ==="
+          echo "Creation Time: $env:PIP_TIME seconds"
+          echo "Method: conda create + pip install -r requirements.txt"
+          echo "Reproducibility: Flexible versions (PyPI latest)"
+
+      - name: Cleanup
+        run: |
+          conda env remove -n pip-env-test -y 2>$null
+
+  lockfile-summary:
+    name: Lockfile Performance Summary
+    runs-on: windows-latest
+    needs: [standard-environment, lockfile-environment, pip-requirements]
+    if: always()
+    steps:
+      - name: Generate Lockfile Comparison Report
+        shell: pwsh
+        run: |
+          echo "=== LOCKFILE PERFORMANCE SUMMARY ==="
+          echo ""
+          echo "| Approach | Installation Time | Reproducibility | Speed | Best For |"
+          echo "|----------|-------------------|------------------|-------|----------|"
+          echo "| Standard environment.yml | ${{ needs.standard-environment.outputs.standard-time }}s | Flexible versions | Variable | Development |"
+          echo "| conda-lock lockfile | ${{ needs.lockfile-environment.outputs.lockfile-time }}s | Exact versions | Consistent | Production |"
+          echo "| pip requirements.txt | ${{ needs.pip-requirements.outputs.pip-time }}s | Flexible versions | Variable | Python-only |"
+          echo ""
+          
+          $standard_time = if ('${{ needs.standard-environment.outputs.standard-time }}' -ne '') { [double]'${{ needs.standard-environment.outputs.standard-time }}' } else { 0 }
+          $lockfile_time = if ('${{ needs.lockfile-environment.outputs.lockfile-time }}' -ne '') { [double]'${{ needs.lockfile-environment.outputs.lockfile-time }}' } else { 0 }
+          $pip_time = if ('${{ needs.pip-requirements.outputs.pip-time }}' -ne '') { [double]'${{ needs.pip-requirements.outputs.pip-time }}' } else { 0 }
+          
+          # Find fastest approach
+          $fastest_approach = "Unknown"
+          $fastest_time = 999
+          
+          if ($standard_time -gt 0 -and $standard_time -lt $fastest_time) {
+            $fastest_approach = "Standard environment.yml"
+            $fastest_time = $standard_time
+          }
+          if ($lockfile_time -gt 0 -and $lockfile_time -lt $fastest_time) {
+            $fastest_approach = "conda-lock lockfile"
+            $fastest_time = $lockfile_time
+          }
+          if ($pip_time -gt 0 -and $pip_time -lt $fastest_time) {
+            $fastest_approach = "pip requirements.txt"
+            $fastest_time = $pip_time
+          }
+          
+          echo "**Fastest Approach**: $fastest_approach (${fastest_time}s)"
+          echo ""
+          
+          # Performance comparisons
+          if ($standard_time -gt 0 -and $lockfile_time -gt 0) {
+            if ($lockfile_time -lt $standard_time) {
+              $speedup = [math]::Round(($standard_time / $lockfile_time), 1)
+              echo "**conda-lock advantage**: ${speedup}x faster than standard environment.yml"
+            } elseif ($standard_time -lt $lockfile_time) {
+              $speedup = [math]::Round(($lockfile_time / $standard_time), 1)
+              echo "**Standard environment advantage**: ${speedup}x faster than conda-lock"
+            } else {
+              echo "**Performance**: conda-lock and standard environment.yml are similar"
+            }
+          }
+          
+          if ($pip_time -gt 0 -and $standard_time -gt 0) {
+            if ($pip_time -lt $standard_time) {
+              $speedup = [math]::Round(($standard_time / $pip_time), 1)
+              echo "**pip advantage**: ${speedup}x faster than conda environment.yml"
+            } else {
+              $speedup = [math]::Round(($pip_time / $standard_time), 1)
+              echo "**conda advantage**: ${speedup}x faster than pip requirements"
+            }
+          }
+          
+          echo ""
+          echo "**Key Insights**:"
+          echo "- **conda-lock** provides exact reproducibility with pre-resolved dependencies"
+          echo "- **Standard environment.yml** allows version flexibility but variable resolution time"
+          echo "- **pip requirements.txt** fastest for Python-only packages but less reproducible"
+          echo "- **Production deployments** should use conda-lock for consistency"
+          echo "- **Development environments** can use standard environment.yml for flexibility"
+          echo "- **Hybrid approach**: Use conda-lock in CI/CD, environment.yml for local development"
+          echo ""
+          echo "**Reproducibility Ranking** (most to least reproducible):"
+          echo "1. conda-lock (exact versions, locked dependencies)"
+          echo "2. Standard environment.yml (specified versions, latest compatible)"
+          echo "3. pip requirements.txt (flexible versions, latest available)"

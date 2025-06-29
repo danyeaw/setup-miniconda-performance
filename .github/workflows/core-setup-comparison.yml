@@ -1,44 +1,4 @@
-setup-summary:
-  name: Setup Comparison Summary
-  runs-on: windows-latest
-  needs: [setup-comparison]
-  if: always()
-  steps:
-    - name: Generate Setup Comparison Report
-      shell: pwsh
-      run: |
-        echo "=== SETUP COMPARISON SUMMARY ==="
-        echo ""
-        echo "| Setup Type | Setup Time | Creation Time | Deletion Time | Total Time |"
-        echo "|------------|------------|---------------|---------------|------------|"
-        echo "| **Native Runner Conda (Baseline)** | ${{ needs.setup-comparison.outputs.native-conda-setup }}s | ${{ needs.setup-comparison.outputs.native-conda-creation }}s | ${{ needs.setup-comparison.outputs.native-conda-deletion }}s | **${{ needs.setup-comparison.outputs.native-conda-total }}s** |"
-        echo "| Setup Runner Conda | ${{ needs.setup-comparison.outputs.runner-conda-setup }}s | ${{ needs.setup-comparison.outputs.runner-conda-creation }}s | ${{ needs.setup-comparison.outputs.runner-conda-deletion }}s | ${{ needs.setup-comparison.outputs.runner-conda-total }}s |"
-        echo "| Latest Miniconda | ${{ needs.setup-comparison.outputs.latest-miniconda-setup }}s | ${{ needs.setup-comparison.outputs.latest-miniconda-creation }}s | ${{ needs.setup-comparison.outputs.latest-miniconda-deletion }}s | ${{ needs.setup-comparison.outputs.latest-miniconda-total }}s |"
-        echo ""
-        
-        # Calculate setup-miniconda overhead
-        $native_total = if ('${{ needs.setup-comparison.outputs.native-conda-total }}' -ne '') { [double]'${{ needs.setup-comparison.outputs.native-conda-total }}' } else { 0 }
-        $runner_total = if ('${{ needs.setup-comparison.outputs.runner-conda-total }}' -ne '') { [double]'${{ needs.setup-comparison.outputs.runner-conda-total }}' } else { 0 }
-        $latest_total = if ('${{ needs.setup-comparison.outputs.latest-miniconda-total }}' -ne '') { [double]'${{ needs.setup-comparison.outputs.latest-miniconda-total }}' } else { 0 }
-        
-        if ($native_total -gt 0 -and $runner_total -gt 0) {
-          $overhead = [math]::Round(($runner_total - $native_total), 1)
-          $ratio = [math]::Round(($runner_total / $native_total), 1)
-          echo "**Setup-Miniconda Action Overhead**: +${overhead}s (${ratio}x slower than native)"
-        }
-        
-        if ($native_total -gt 0 -and $latest_total -gt 0) {
-          $latest_overhead = [math]::Round(($latest_total - $native_total), 1)
-          $latest_ratio = [math]::Round(($latest_total / $native_total), 1)
-          echo "**Latest Miniconda Overhead**: +${latest_overhead}s (${latest_ratio}x slower than native)"
-        }
-        
-        echo ""
-        echo "**Key Insights**:"
-        echo "- Native conda (pre-installed on runner) provides baseline performance"
-        echo "- setup-miniconda action adds initialization overhead even with same conda version"
-        echo "- Latest miniconda download and installation adds significant time"
-        echo "- All tests use bash shell for consistent comparison"name: Core Setup Comparison
+name: Core Setup Comparison
 
 on:
   workflow_dispatch:
@@ -51,155 +11,395 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  setup-comparison:
-    name: Setup Comparison (${{ matrix.setup-type }})
+  native-conda-baseline:
+    name: Native Runner Conda (Baseline)
     runs-on: windows-latest
     outputs:
-      native-conda-setup: ${{ steps.native-conda-results.outputs.setup-time }}
-      native-conda-creation: ${{ steps.native-conda-results.outputs.creation-time }}
-      native-conda-deletion: ${{ steps.native-conda-results.outputs.deletion-time }}
-      native-conda-total: ${{ steps.native-conda-results.outputs.total-time }}
-      runner-conda-setup: ${{ steps.runner-conda-results.outputs.setup-time }}
-      runner-conda-creation: ${{ steps.runner-conda-results.outputs.creation-time }}
-      runner-conda-deletion: ${{ steps.runner-conda-results.outputs.deletion-time }}
-      runner-conda-total: ${{ steps.runner-conda-results.outputs.total-time }}
-      latest-miniconda-setup: ${{ steps.latest-miniconda-results.outputs.setup-time }}
-      latest-miniconda-creation: ${{ steps.latest-miniconda-results.outputs.creation-time }}
-      latest-miniconda-deletion: ${{ steps.latest-miniconda-results.outputs.deletion-time }}
-      latest-miniconda-total: ${{ steps.latest-miniconda-results.outputs.total-time }}
+      native-setup-time: ${{ steps.native-results.outputs.setup-time }}
+      native-creation-time: ${{ steps.native-results.outputs.creation-time }}
+      native-deletion-time: ${{ steps.native-results.outputs.deletion-time }}
+      native-total-time: ${{ steps.native-results.outputs.total-time }}
     defaults:
       run:
         shell: pwsh
-    strategy:
-      fail-fast: false
-      matrix:
-        setup-type: [ native-conda, runner-conda, latest-miniconda ]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Start Setup Timing
-        shell: pwsh
+      - name: Start Native Conda Timing
         run: |
-          echo "=== Starting ${{ matrix.setup-type }} setup timing ==="
+          echo "=== Testing Native Runner Conda (True Baseline) ==="
           echo "SETUP_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
 
-      - name: Setup Native Runner Conda (True Baseline)
-        if: matrix.setup-type == 'native-conda'
-        shell: pwsh
+      - name: Setup Native Runner Conda
         run: |
           # Use the pre-installed Conda without setup-miniconda action
           echo "Using native runner Conda at: $env:CONDA"
           echo "Conda version:"
           & "$env:CONDA\Scripts\conda.exe" --version
           echo "Conda info:"
-          & "$env:CONDA\Scripts\conda.exe" info
+          & "$env:CONDA\Scripts\conda.exe" info --envs
           # Initialize conda for PowerShell
           & "$env:CONDA\Scripts\conda.exe" init powershell
-
-      - name: Setup Runner Conda (Using setup-miniconda)
-        if: matrix.setup-type == 'runner-conda'
-        uses: conda-incubator/setup-miniconda@v3
-
-      - name: Setup Latest Miniconda
-        if: matrix.setup-type == 'latest-miniconda'
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniconda-version: "latest"
+          # Refresh environment to pick up conda
+          $env:PATH = "$env:CONDA\Scripts;$env:CONDA\Library\bin;" + $env:PATH
 
       - name: Calculate Setup Time
-        shell: pwsh
         run: |
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $env:SETUP_START_TIME) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
-          echo "${{ matrix.setup-type }} setup took: $formatted_duration seconds"
+          echo "Native conda setup took: $formatted_duration seconds"
           echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Time Environment Creation
         run: |
           $start_time = [System.DateTime]::Now.Ticks
-          if ("${{ matrix.setup-type }}" -eq "native-conda") {
-            # Use native conda directly
-            & "$env:CONDA\Scripts\conda.exe" env create -f environment.yml -n perf-test-${{ matrix.setup-type }}
-          } else {
-            conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}
-          }
+          & "$env:CONDA\Scripts\conda.exe" env create -f environment.yml -n native-perf-test
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
+          echo "Native environment creation took: $formatted_duration seconds"
           echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Time Environment Deletion
         run: |
           $start_time = [System.DateTime]::Now.Ticks
-          if ("${{ matrix.setup-type }}" -eq "native-conda") {
-            & "$env:CONDA\Scripts\conda.exe" env remove -n perf-test-${{ matrix.setup-type }} -y
-          } else {
-            conda env remove -n perf-test-${{ matrix.setup-type }} -y
-          }
+          & "$env:CONDA\Scripts\conda.exe" env remove -n native-perf-test -y
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
+          echo "Native environment deletion took: $formatted_duration seconds"
           echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Calculate Total Time
-        shell: pwsh
         run: |
-          try {
-            $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
-            $formatted_total = [math]::Round($total, 1)
-            echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
-          } catch {
-            echo "TOTAL_TIME=0" >> $env:GITHUB_ENV
-          }
+          $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
 
-      # Set outputs for each setup type
-      - name: Set Native Conda Results
-        if: matrix.setup-type == 'native-conda'
-        id: native-conda-results
-        shell: pwsh
+      - name: Set Native Results
+        id: native-results
         run: |
           echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
           echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
           echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
           echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
 
-      - name: Set Runner Conda Results
-        if: matrix.setup-type == 'runner-conda'
-        id: runner-conda-results
-        shell: pwsh
+      - name: Report Native Results
         run: |
-          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
-          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
-          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
-          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
-
-      - name: Set Latest Miniconda Results
-        if: matrix.setup-type == 'latest-miniconda'
-        id: latest-miniconda-results
-        shell: pwsh
-        run: |
-          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
-          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
-          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
-          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
-
-      - name: Report Core Performance Results
-        shell: pwsh
-        run: |
-          echo "=== CORE PERFORMANCE RESULTS ==="
-          echo "Setup Type: ${{ matrix.setup-type }}"
+          echo "=== NATIVE CONDA BASELINE RESULTS ==="
           echo "Setup Time: $env:SETUP_TIME seconds"
           echo "Creation Time: $env:CREATION_TIME seconds"
           echo "Deletion Time: $env:DELETION_TIME seconds"
           echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "This represents the fastest possible conda performance (no action overhead)"
+
+  setup-runner-conda:
+    name: Setup Runner Conda (Action)
+    runs-on: windows-latest
+    outputs:
+      runner-setup-time: ${{ steps.runner-results.outputs.setup-time }}
+      runner-creation-time: ${{ steps.runner-results.outputs.creation-time }}
+      runner-deletion-time: ${{ steps.runner-results.outputs.deletion-time }}
+      runner-total-time: ${{ steps.runner-results.outputs.total-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Setup Runner Conda Timing
+        run: |
+          echo "=== Testing Setup Runner Conda (using setup-miniconda action) ==="
+          echo "SETUP_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Runner Conda via Action
+        uses: conda-incubator/setup-miniconda@v3
+
+      - name: Calculate Setup Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:SETUP_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Setup-miniconda action took: $formatted_duration seconds"
+          echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env create -f environment.yml -n runner-perf-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Runner environment creation took: $formatted_duration seconds"
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Deletion
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env remove -n runner-perf-test -y
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Runner environment deletion took: $formatted_duration seconds"
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Calculate Total Time
+        run: |
+          $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
+
+      - name: Set Runner Results
+        id: runner-results
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Runner Results
+        run: |
+          echo "=== SETUP RUNNER CONDA RESULTS ==="
+          echo "Setup Time: $env:SETUP_TIME seconds"
+          echo "Creation Time: $env:CREATION_TIME seconds"
+          echo "Deletion Time: $env:DELETION_TIME seconds"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "This uses setup-miniconda action with the runner's existing conda"
+
+  latest-miniconda:
+    name: Latest Miniconda Download
+    runs-on: windows-latest
+    outputs:
+      latest-setup-time: ${{ steps.latest-results.outputs.setup-time }}
+      latest-creation-time: ${{ steps.latest-results.outputs.creation-time }}
+      latest-deletion-time: ${{ steps.latest-results.outputs.deletion-time }}
+      latest-total-time: ${{ steps.latest-results.outputs.total-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Latest Miniconda Timing
+        run: |
+          echo "=== Testing Latest Miniconda Download ==="
+          echo "SETUP_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Latest Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+
+      - name: Calculate Setup Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:SETUP_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Latest miniconda download and setup took: $formatted_duration seconds"
+          echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env create -f environment.yml -n latest-perf-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Latest environment creation took: $formatted_duration seconds"
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Deletion
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env remove -n latest-perf-test -y
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Latest environment deletion took: $formatted_duration seconds"
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Calculate Total Time
+        run: |
+          $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
+
+      - name: Set Latest Results
+        id: latest-results
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Latest Results
+        run: |
+          echo "=== LATEST MINICONDA RESULTS ==="
+          echo "Setup Time: $env:SETUP_TIME seconds"
+          echo "Creation Time: $env:CREATION_TIME seconds"
+          echo "Deletion Time: $env:DELETION_TIME seconds"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "This downloads and installs the latest miniconda version"
+
+  miniforge-comparison:
+    name: Miniforge Alternative
+    runs-on: windows-latest
+    outputs:
+      miniforge-setup-time: ${{ steps.miniforge-results.outputs.setup-time }}
+      miniforge-creation-time: ${{ steps.miniforge-results.outputs.creation-time }}
+      miniforge-deletion-time: ${{ steps.miniforge-results.outputs.deletion-time }}
+      miniforge-total-time: ${{ steps.miniforge-results.outputs.total-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Miniforge Timing
+        run: |
+          echo "=== Testing Miniforge Alternative ==="
+          echo "SETUP_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          channels: conda-forge,defaults
+
+      - name: Calculate Setup Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:SETUP_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Miniforge setup took: $formatted_duration seconds"
+          echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env create -f environment.yml -n miniforge-perf-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Miniforge environment creation took: $formatted_duration seconds"
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Deletion
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env remove -n miniforge-perf-test -y
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Miniforge environment deletion took: $formatted_duration seconds"
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Calculate Total Time
+        run: |
+          $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
+
+      - name: Set Miniforge Results
+        id: miniforge-results
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Miniforge Results
+        run: |
+          echo "=== MINIFORGE RESULTS ==="
+          echo "Setup Time: $env:SETUP_TIME seconds"
+          echo "Creation Time: $env:CREATION_TIME seconds"
+          echo "Deletion Time: $env:DELETION_TIME seconds"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "This uses Miniforge with conda-forge as default channel"
+
+  setup-summary:
+    name: Setup Comparison Summary
+    runs-on: windows-latest
+    needs: [native-conda-baseline, setup-runner-conda, latest-miniconda, miniforge-comparison]
+    if: always()
+    steps:
+      - name: Generate Setup Comparison Report
+        shell: pwsh
+        run: |
+          echo "=== SETUP COMPARISON SUMMARY ==="
           echo ""
-          echo "This test compares different conda setup approaches using PowerShell"
-          if ("${{ matrix.setup-type }}" -eq "native-conda") {
-            echo "Native Conda Info:"
-            & "$env:CONDA\Scripts\conda.exe" info
-          } else {
-            conda info
+          echo "| Setup Method | Setup Time | Creation Time | Deletion Time | Total Time | Overhead vs Native |"
+          echo "|--------------|------------|---------------|---------------|------------|-------------------|"
+          echo "| **Native Runner Conda (Baseline)** | ${{ needs.native-conda-baseline.outputs.native-setup-time }}s | ${{ needs.native-conda-baseline.outputs.native-creation-time }}s | ${{ needs.native-conda-baseline.outputs.native-deletion-time }}s | **${{ needs.native-conda-baseline.outputs.native-total-time }}s** | - |"
+          echo "| Setup Runner Conda | ${{ needs.setup-runner-conda.outputs.runner-setup-time }}s | ${{ needs.setup-runner-conda.outputs.runner-creation-time }}s | ${{ needs.setup-runner-conda.outputs.runner-deletion-time }}s | ${{ needs.setup-runner-conda.outputs.runner-total-time }}s | vs Native |"
+          echo "| Latest Miniconda | ${{ needs.latest-miniconda.outputs.latest-setup-time }}s | ${{ needs.latest-miniconda.outputs.latest-creation-time }}s | ${{ needs.latest-miniconda.outputs.latest-deletion-time }}s | ${{ needs.latest-miniconda.outputs.latest-total-time }}s | vs Native |"
+          echo "| Miniforge | ${{ needs.miniforge-comparison.outputs.miniforge-setup-time }}s | ${{ needs.miniforge-comparison.outputs.miniforge-creation-time }}s | ${{ needs.miniforge-comparison.outputs.miniforge-deletion-time }}s | ${{ needs.miniforge-comparison.outputs.miniforge-total-time }}s | vs Native |"
+          echo ""
+          
+          # Calculate overheads and ratios
+          $native_total = if ('${{ needs.native-conda-baseline.outputs.native-total-time }}' -ne '') { [double]'${{ needs.native-conda-baseline.outputs.native-total-time }}' } else { 0 }
+          $runner_total = if ('${{ needs.setup-runner-conda.outputs.runner-total-time }}' -ne '') { [double]'${{ needs.setup-runner-conda.outputs.runner-total-time }}' } else { 0 }
+          $latest_total = if ('${{ needs.latest-miniconda.outputs.latest-total-time }}' -ne '') { [double]'${{ needs.latest-miniconda.outputs.latest-total-time }}' } else { 0 }
+          $miniforge_total = if ('${{ needs.miniforge-comparison.outputs.miniforge-total-time }}' -ne '') { [double]'${{ needs.miniforge-comparison.outputs.miniforge-total-time }}' } else { 0 }
+          
+          # Find fastest method
+          $fastest_method = "Native Runner Conda"
+          $fastest_time = $native_total
+          
+          if ($runner_total -gt 0 -and $runner_total -lt $fastest_time) {
+            $fastest_method = "Setup Runner Conda"
+            $fastest_time = $runner_total
           }
+          if ($latest_total -gt 0 -and $latest_total -lt $fastest_time) {
+            $fastest_method = "Latest Miniconda"
+            $fastest_time = $latest_total
+          }
+          if ($miniforge_total -gt 0 -and $miniforge_total -lt $fastest_time) {
+            $fastest_method = "Miniforge"
+            $fastest_time = $miniforge_total
+          }
+          
+          echo "**Fastest Method**: $fastest_method (${fastest_time}s total)"
+          echo ""
+          
+          # Calculate action overhead
+          if ($native_total -gt 0 -and $runner_total -gt 0) {
+            $overhead = [math]::Round(($runner_total - $native_total), 1)
+            $ratio = [math]::Round(($runner_total / $native_total), 1)
+            echo "**Setup-Miniconda Action Overhead**: +${overhead}s (${ratio}x slower than native)"
+          }
+          
+          if ($native_total -gt 0 -and $latest_total -gt 0) {
+            $latest_overhead = [math]::Round(($latest_total - $native_total), 1)
+            $latest_ratio = [math]::Round(($latest_total / $native_total), 1)
+            echo "**Latest Miniconda Overhead**: +${latest_overhead}s (${latest_ratio}x slower than native)"
+          }
+          
+          if ($native_total -gt 0 -and $miniforge_total -gt 0) {
+            $miniforge_overhead = [math]::Round(($miniforge_total - $native_total), 1)
+            $miniforge_ratio = [math]::Round(($miniforge_total / $native_total), 1)
+            echo "**Miniforge Overhead**: +${miniforge_overhead}s (${miniforge_ratio}x slower than native)"
+          }
+          
+          echo ""
+          echo "**Key Insights**:"
+          echo "- **Native conda** (pre-installed) provides the absolute fastest performance"
+          echo "- **setup-miniconda action** adds initialization overhead even with same conda version"
+          echo "- **Latest miniconda download** adds significant time due to download and installation"
+          echo "- **Miniforge** may be faster for conda-forge heavy environments"
+          echo "- **All tests use PowerShell** for consistent Windows testing"
+          echo ""
+          echo "**Recommendations**:"
+          echo "- **CI/CD Speed**: Use native conda if available on runner"
+          echo "- **Compatibility**: Use setup-miniconda action for consistency across environments"
+          echo "- **Latest Features**: Use latest miniconda when you need newest conda features"
+          echo "- **conda-forge Heavy**: Consider Miniforge for conda-forge dominated environments"

@@ -1,39 +1,4 @@
-operations-summary:
-  name: Environment Operations Summary
-  runs-on: windows-latest
-  needs: [existing-environment-update, integrated-environment-setup]
-  if: always()
-  steps:
-    - name: Generate Operations Summary Report
-      shell: pwsh
-      run: |
-        echo "=== ENVIRONMENT OPERATIONS SUMMARY ==="
-        echo ""
-        echo "| Operation | Time | Description |"
-        echo "|-----------|------|-------------|"
-        echo "| Environment Update | ${{ needs.existing-environment-update.outputs.update-time }}s | Update existing 'test' environment |"
-        echo "| Integrated Setup | ${{ needs.integrated-environment-setup.outputs.integrated-setup-time }}s | Miniconda + Environment in one step |"
-        echo ""
-        
-        $update_time = if ('${{ needs.existing-environment-update.outputs.update-time }}' -ne '') { [double]'${{ needs.existing-environment-update.outputs.update-time }}' } else { 0 }
-        $integrated_time = if ('${{ needs.integrated-environment-setup.outputs.integrated-setup-time }}' -ne '') { [double]'${{ needs.integrated-environment-setup.outputs.integrated-setup-time }}' } else { 0 }
-        
-        if ($update_time -gt 0 -and $integrated_time -gt 0) {
-          if ($update_time -lt $integrated_time) {
-            $ratio = [math]::Round(($integrated_time / $update_time), 1)
-            echo "**Fastest Approach**: Environment Update (${ratio}x faster than integrated setup)"
-          } else {
-            $ratio = [math]::Round(($update_time / $integrated_time), 1)
-            echo "**Fastest Approach**: Integrated Setup (${ratio}x faster than update)"
-          }
-        }
-        
-        echo ""
-        echo "**Key Insights**:"
-        echo "- Environment updates modify existing environments incrementally"
-        echo "- Integrated setup combines Miniconda installation and environment creation"
-        echo "- Update approach is typically faster when environment already exists"
-        echo "- Integrated setup is convenient for fresh installations"name: Environment Operations
+name: Environment Operations
 
 on:
   workflow_dispatch:
@@ -77,11 +42,9 @@ jobs:
 
       - name: Set Update Results
         id: update-results
-        shell: pwsh
         run: echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Report Environment Update Results
-        shell: pwsh
         run: |
           echo "=== EXISTING ENVIRONMENT UPDATE RESULTS ==="
           echo "Update Time: $env:UPDATE_TIME seconds"
@@ -101,7 +64,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Start Integrated Setup Timing
-        shell: pwsh
         run: |
           echo "=== Starting integrated environment setup timing ==="
           echo "INTEGRATED_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
@@ -115,7 +77,6 @@ jobs:
           auto-activate-base: false
 
       - name: Calculate Integrated Setup Time
-        shell: pwsh
         run: |
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $env:INTEGRATED_START_TIME) / 10000000
@@ -125,13 +86,127 @@ jobs:
 
       - name: Set Integrated Results
         id: integrated-results
-        shell: pwsh
         run: |
           echo "setup-time=$env:INTEGRATED_SETUP_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Report Integrated Setup Results
-        shell: pwsh
         run: |
           echo "=== INTEGRATED ENVIRONMENT SETUP RESULTS ==="
           echo "Total Setup Time (Miniconda + Environment): $env:INTEGRATED_SETUP_TIME seconds"
           echo "This includes both Miniconda installation and environment creation in one step"
+
+  fresh-environment-creation:
+    name: Fresh Environment Creation (Baseline)
+    runs-on: windows-latest
+    outputs:
+      fresh-creation-time: ${{ steps.fresh-results.outputs.creation-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: "latest"
+          auto-activate-base: false
+
+      - name: Time Fresh Environment Creation
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env create -f environment.yml -n fresh-env-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "FRESH_CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Set Fresh Results
+        id: fresh-results
+        run: |
+          echo "creation-time=$env:FRESH_CREATION_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Fresh Creation Results
+        run: |
+          echo "=== FRESH ENVIRONMENT CREATION RESULTS ==="
+          echo "Fresh Creation Time: $env:FRESH_CREATION_TIME seconds"
+          echo "This provides baseline timing for creating new environments"
+
+      - name: Cleanup
+        run: |
+          conda env remove -n fresh-env-test -y 2>$null
+
+  operations-summary:
+    name: Environment Operations Summary
+    runs-on: windows-latest
+    needs: [existing-environment-update, integrated-environment-setup, fresh-environment-creation]
+    if: always()
+    steps:
+      - name: Generate Operations Summary Report
+        shell: pwsh
+        run: |
+          echo "=== ENVIRONMENT OPERATIONS SUMMARY ==="
+          echo ""
+          echo "| Operation | Time | Description |"
+          echo "|-----------|------|-------------|"
+          echo "| Environment Update | ${{ needs.existing-environment-update.outputs.update-time }}s | Update existing 'test' environment |"
+          echo "| Integrated Setup | ${{ needs.integrated-environment-setup.outputs.integrated-setup-time }}s | Miniconda + Environment in one step |"
+          echo "| Fresh Creation | ${{ needs.fresh-environment-creation.outputs.fresh-creation-time }}s | Create new environment (baseline) |"
+          echo ""
+          
+          $update_time = if ('${{ needs.existing-environment-update.outputs.update-time }}' -ne '') { [double]'${{ needs.existing-environment-update.outputs.update-time }}' } else { 0 }
+          $integrated_time = if ('${{ needs.integrated-environment-setup.outputs.integrated-setup-time }}' -ne '') { [double]'${{ needs.integrated-environment-setup.outputs.integrated-setup-time }}' } else { 0 }
+          $fresh_time = if ('${{ needs.fresh-environment-creation.outputs.fresh-creation-time }}' -ne '') { [double]'${{ needs.fresh-environment-creation.outputs.fresh-creation-time }}' } else { 0 }
+          
+          # Find fastest approach
+          $fastest_approach = "Unknown"
+          $fastest_time = 999
+          
+          if ($update_time -gt 0 -and $update_time -lt $fastest_time) {
+            $fastest_approach = "Environment Update"
+            $fastest_time = $update_time
+          }
+          if ($fresh_time -gt 0 -and $fresh_time -lt $fastest_time) {
+            $fastest_approach = "Fresh Creation"
+            $fastest_time = $fresh_time
+          }
+          if ($integrated_time -gt 0 -and $integrated_time -lt $fastest_time) {
+            $fastest_approach = "Integrated Setup"
+            $fastest_time = $integrated_time
+          }
+          
+          echo "**Fastest Approach**: $fastest_approach (${fastest_time}s)"
+          echo ""
+          
+          # Compare integrated vs separate operations
+          if ($integrated_time -gt 0 -and $fresh_time -gt 0) {
+            if ($integrated_time -lt $fresh_time) {
+              $ratio = [math]::Round(($fresh_time / $integrated_time), 1)
+              echo "**Integrated vs Fresh**: Integrated is ${ratio}x faster"
+            } else {
+              $ratio = [math]::Round(($integrated_time / $fresh_time), 1)
+              echo "**Integrated vs Fresh**: Fresh creation is ${ratio}x faster"
+            }
+          }
+          
+          # Compare update vs fresh creation
+          if ($update_time -gt 0 -and $fresh_time -gt 0) {
+            if ($update_time -lt $fresh_time) {
+              $ratio = [math]::Round(($fresh_time / $update_time), 1)
+              echo "**Update vs Fresh**: Update is ${ratio}x faster"
+            } else {
+              $ratio = [math]::Round(($update_time / $fresh_time), 1)
+              echo "**Update vs Fresh**: Fresh creation is ${ratio}x faster"
+            }
+          }
+          
+          echo ""
+          echo "**Key Insights**:"
+          echo "- Environment updates modify existing environments incrementally"
+          echo "- Integrated setup combines Miniconda installation and environment creation"
+          echo "- Fresh creation provides baseline for new environment performance"
+          echo "- Update approach is typically faster when environment already exists"
+          echo "- Integrated setup eliminates separate environment creation step"
+          echo "- Choose approach based on your CI/CD workflow requirements"
