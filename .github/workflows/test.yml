@@ -326,7 +326,7 @@ jobs:
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
 
 
-          conda env create --name lockfile-test-bash --file conda-lock.yml
+          conda env create --name lockfile-test-cmd --file conda-lock.yml --verbose
 
 
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
@@ -349,7 +349,7 @@ jobs:
           $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
 
 
-          conda env create --name lockfile-test-pwsh --file conda-lock.yml
+          conda env create --name lockfile-test-pwsh --file conda-lock.yml --verbose
 
 
           $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
@@ -370,7 +370,7 @@ jobs:
           $start_time = [System.DateTime]::Now.Ticks
 
 
-          conda env create --name lockfile-test-cmd --file conda-lock.yml
+          conda env create --name lockfile-test-cmd --file conda-lock.yml --verbose
 
 
           $end_time = [System.DateTime]::Now.Ticks
