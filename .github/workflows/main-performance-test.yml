@@ -15,6 +15,7 @@ on:
           - caching-performance
           - solver-optimization
           - lockfile-performance
+          - shell-performance
       generate-summary:
         description: 'Generate summary report after tests'
         required: false
@@ -51,7 +52,8 @@ jobs:
               'environment-operations': 'environment-operations.yml', 
               'caching-performance': 'caching-performance.yml',
               'solver-optimization': 'solver-optimization.yml',
-              'lockfile-performance': 'lockfile-performance.yml'
+              'lockfile-performance': 'lockfile-performance.yml',
+              'shell-performance': 'shell-performance.yml'
             };
             
             const triggeredWorkflows = [];
@@ -59,36 +61,28 @@ jobs:
             if (testSuite === 'all') {
               // Trigger all workflows
               for (const [name, workflowFile] of Object.entries(workflows)) {
-                try {
-                  await github.rest.actions.createWorkflowDispatch({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    workflow_id: workflowFile,
-                    ref: 'main'
-                  });
-                  triggeredWorkflows.push(name);
-                  console.log(`✅ Triggered ${name}`);
-            
-                  // Add delay between triggers to avoid rate limiting
-                  await new Promise(resolve => setTimeout(resolve, 2000));
-                } catch (error) {
-                  console.log(`❌ Failed to trigger ${name}: ${error.message}`);
-                }
-              }
-            } else if (workflows[testSuite]) {
-              // Trigger specific workflow
-              try {
                 await github.rest.actions.createWorkflowDispatch({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  workflow_id: workflows[testSuite],
+                  workflow_id: workflowFile,
                   ref: 'main'
                 });
-                triggeredWorkflows.push(testSuite);
-                console.log(`✅ Triggered ${testSuite}`);
-              } catch (error) {
-                console.log(`❌ Failed to trigger ${testSuite}: ${error.message}`);
+                triggeredWorkflows.push(name);
+                console.log(`✅ Triggered ${name}`);
+            
+                // Add delay between triggers to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 2000));
               }
+            } else if (workflows[testSuite]) {
+              // Trigger specific workflow
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflows[testSuite],
+                ref: 'main'
+              });
+              triggeredWorkflows.push(testSuite);
+              console.log(`✅ Triggered ${testSuite}`);
             } else {
               console.log(`❌ Unknown test suite: ${testSuite}`);
             }
@@ -114,7 +108,7 @@ jobs:
       - name: Wait for Tests to Complete
         run: |
           echo "Waiting for triggered tests to complete..."
-          echo "This will wait up to 30 minutes for all tests to finish"
+          echo "This will wait up to 15 minutes for all tests to finish"
           
           # Wait 15 minutes for tests to complete
           echo "Waiting 15 minutes..."
@@ -132,7 +126,8 @@ jobs:
               'environment-operations': 'environment-operations.yml', 
               'caching-performance': 'caching-performance.yml',
               'solver-optimization': 'solver-optimization.yml',
-              'lockfile-performance': 'lockfile-performance.yml'
+              'lockfile-performance': 'lockfile-performance.yml',
+              'shell-performance': 'shell-performance.yml'
             };
             
             const results = {};
@@ -142,37 +137,31 @@ jobs:
               const workflowFile = workflowFiles[workflowName];
               if (!workflowFile) continue;
             
-              try {
-                const runs = await github.rest.actions.listWorkflowRuns({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  workflow_id: workflowFile,
-                  per_page: 5
-                });
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflowFile,
+                per_page: 5
+              });
             
-                // Find the most recent run that started after this workflow
-                const recentRun = runs.data.workflow_runs.find(run => 
-                  new Date(run.created_at) > new Date('${{ github.event.head_commit.timestamp || github.run_started_at }}')
-                );
+              // Find the most recent run that started after this workflow
+              const recentRun = runs.data.workflow_runs.find(run => 
+                new Date(run.created_at) > new Date('${{ github.event.head_commit.timestamp || github.run_started_at }}')
+              );
             
-                if (recentRun) {
-                  results[workflowName] = {
-                    status: recentRun.status,
-                    conclusion: recentRun.conclusion,
-                    html_url: recentRun.html_url,
-                    created_at: recentRun.created_at
-                  };
+              if (recentRun) {
+                results[workflowName] = {
+                  status: recentRun.status,
+                  conclusion: recentRun.conclusion,
+                  html_url: recentRun.html_url,
+                  created_at: recentRun.created_at
+                };
             
-                  if (recentRun.status !== 'completed') {
-                    allCompleted = false;
-                  }
-                } else {
-                  results[workflowName] = { status: 'not_started' };
+                if (recentRun.status !== 'completed') {
                   allCompleted = false;
                 }
-              } catch (error) {
-                console.log(`Error checking ${workflowName}: ${error.message}`);
-                results[workflowName] = { status: 'error' };
+              } else {
+                results[workflowName] = { status: 'not_started' };
                 allCompleted = false;
               }
             }
@@ -227,14 +216,10 @@ jobs:
             // Wait a bit more to ensure all artifacts are ready
             await new Promise(resolve => setTimeout(resolve, 60000));
             
-            try {
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'performance-summary.yml',
-                ref: 'main'
-              });
-              console.log('✅ Triggered Performance Summary workflow');
-            } catch (error) {
-              console.log(`❌ Failed to trigger summary: ${error.message}`);
-            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'performance-summary.yml',
+              ref: 'main'
+            });
+            console.log('✅ Triggered Performance Summary workflow');
