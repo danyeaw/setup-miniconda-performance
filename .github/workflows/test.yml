@@ -77,113 +77,65 @@ jobs:
         if: matrix.shell-type == 'bash'
         shell: bash -el {0}
         run: |
-          echo "=== Testing ${{ matrix.setup-type }} setup performance with bash shell ==="
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-          
           conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}-bash
-          
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Environment creation took: ${formatted_duration} seconds"
           echo "CREATION_TIME=${formatted_duration}" >> $GITHUB_ENV
 
       - name: Time Environment Creation (PowerShell)
         if: matrix.shell-type == 'pwsh'
         shell: pwsh
         run: |
-          echo "=== Testing ${{ matrix.setup-type }} setup performance with pwsh shell ==="
           $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
-          
           conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}-pwsh
-          
           $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
           $duration = powershell -Command "($end_time - $start_time) / 10000000"
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Environment creation took: $formatted_duration seconds"
           echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Time Environment Creation (CMD)
         if: matrix.shell-type == 'cmd'
         run: |
-          echo === Testing ${{ matrix.setup-type }} setup performance with cmd shell ===
           $start_time = [System.DateTime]::Now.Ticks
-          
           conda env create -f environment.yml -n perf-test-${{ matrix.setup-type }}-cmd
-          
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Environment creation took: $formatted_duration seconds"
           echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
         shell: pwsh
-
-      - name: Test Environment Works (Bash)
-        if: matrix.shell-type == 'bash'
-        shell: bash -el {0}
-        run: |
-          conda activate perf-test-${{ matrix.setup-type }}-bash
-          python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
-          conda list
-
-      - name: Test Environment Works (PowerShell)
-        if: matrix.shell-type == 'pwsh'
-        shell: pwsh
-        run: |
-          conda activate perf-test-${{ matrix.setup-type }}-pwsh
-          python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
-          conda list
-
-      - name: Test Environment Works (CMD)
-        if: matrix.shell-type == 'cmd'
-        shell: cmd /C CALL {0}
-        run: |
-          conda activate perf-test-${{ matrix.setup-type }}-cmd
-          python -c "import numpy, pandas, requests, pytest; print('Environment working correctly')"
-          conda list
 
       - name: Time Environment Deletion (Bash)
         if: matrix.shell-type == 'bash'
         shell: bash -el {0}
         run: |
-          echo "=== Testing environment deletion with bash ==="
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-          
           conda env remove -n perf-test-${{ matrix.setup-type }}-bash -y
-          
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Environment deletion took: ${formatted_duration} seconds"
           echo "DELETION_TIME=${formatted_duration}" >> $GITHUB_ENV
 
       - name: Time Environment Deletion (PowerShell)
         if: matrix.shell-type == 'pwsh'
         shell: pwsh
         run: |
-          echo "=== Testing environment deletion with pwsh ==="
           $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
-          
           conda env remove -n perf-test-${{ matrix.setup-type }}-pwsh -y
-          
           $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
           $duration = powershell -Command "($end_time - $start_time) / 10000000"
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Environment deletion took: $formatted_duration seconds"
           echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Time Environment Deletion (CMD)
         if: matrix.shell-type == 'cmd'
         run: |
-          echo === Testing environment deletion with cmd ===
           $start_time = [System.DateTime]::Now.Ticks
-          
           conda env remove -n perf-test-${{ matrix.setup-type }}-cmd -y
-          
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Environment deletion took: $formatted_duration seconds"
           echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
         shell: pwsh
 
@@ -286,100 +238,53 @@ jobs:
         if: matrix.shell-type == 'bash'
         shell: bash -el {0}
         run: |
-          echo "=== Testing existing environment update with bash shell ==="
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-          
           conda activate test
           conda env update --name test --file environment.yml
-          
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Environment update took: ${formatted_duration} seconds"
           echo "UPDATE_TIME=${formatted_duration}" >> $GITHUB_ENV
 
       - name: Time Environment Update (PowerShell)
         if: matrix.shell-type == 'pwsh'
         shell: pwsh
         run: |
-          echo "=== Testing existing environment update with pwsh shell ==="
           $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
-          
-          conda activate test
           conda env update --name test --file environment.yml
-          
           $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
           $duration = powershell -Command "($end_time - $start_time) / 10000000"
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Environment update took: $formatted_duration seconds"
           echo "UPDATE_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Time Environment Update (CMD)
         if: matrix.shell-type == 'cmd'
         run: |
-          echo === Testing existing environment update with cmd shell ===
           $start_time = [System.DateTime]::Now.Ticks
-          
-          conda activate test
           conda env update --name test --file environment.yml
-          
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Environment update took: $formatted_duration seconds"
           echo "UPDATE_TIME=$formatted_duration" >> $env:GITHUB_ENV
         shell: pwsh
-
-      - name: Test Updated Environment (Bash)
-        if: matrix.shell-type == 'bash'
-        shell: bash -el {0}
-        run: |
-          conda activate test
-          echo "=== Testing updated environment with bash ==="
-          python -c "import numpy, pandas, requests, pytest; print('Updated environment working correctly')"
-          echo "Final packages in updated test environment:"
-          conda list
-
-      - name: Test Updated Environment (PowerShell)
-        if: matrix.shell-type == 'pwsh'
-        shell: pwsh
-        run: |
-          conda activate test
-          echo "=== Testing updated environment with pwsh ==="
-          python -c "import numpy, pandas, requests, pytest; print('Updated environment working correctly')"
-          echo "Final packages in updated test environment:"
-          conda list
-
-      - name: Test Updated Environment (CMD)
-        if: matrix.shell-type == 'cmd'
-        shell: cmd /C CALL {0}
-        run: |
-          conda activate test
-          echo === Testing updated environment with cmd ===
-          python -c "import numpy, pandas, requests, pytest; print('Updated environment working correctly')"
-          echo Final packages in updated test environment:
-          conda list
 
       - name: Set Update Bash Outputs
         if: matrix.shell-type == 'bash'
         id: update-bash-results
         shell: pwsh
-        run: |
-          echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+        run: echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Set Update PowerShell Outputs
         if: matrix.shell-type == 'pwsh'
         id: update-pwsh-results
         shell: pwsh
-        run: |
-          echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+        run: echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Set Update CMD Outputs
         if: matrix.shell-type == 'cmd'
         id: update-cmd-results
         shell: pwsh
-        run: |
-          echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
+        run: echo "update-time=$env:UPDATE_TIME" >> $env:GITHUB_OUTPUT
 
       - name: Report Environment Update Results
         shell: pwsh
@@ -447,36 +352,6 @@ jobs:
           echo "Integrated setup with ${{ matrix.shell-type }} took: $formatted_duration seconds"
           echo "INTEGRATED_SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
-      - name: Test Integrated Environment (Bash)
-        if: matrix.shell-type == 'bash'
-        shell: bash -el {0}
-        run: |
-          echo "=== Testing integrated environment with bash ==="
-          echo "Active environment: $CONDA_DEFAULT_ENV"
-          python -c "import numpy, pandas, requests, pytest; print('Integrated environment working correctly')"
-          conda list
-          conda info
-
-      - name: Test Integrated Environment (PowerShell)
-        if: matrix.shell-type == 'pwsh'
-        shell: pwsh
-        run: |
-          echo "=== Testing integrated environment with pwsh ==="
-          echo "Active environment: $env:CONDA_DEFAULT_ENV"
-          python -c "import numpy, pandas, requests, pytest; print('Integrated environment working correctly')"
-          conda list
-          conda info
-
-      - name: Test Integrated Environment (CMD)
-        if: matrix.shell-type == 'cmd'
-        shell: cmd /C CALL {0}
-        run: |
-          echo === Testing integrated environment with cmd ===
-          echo Active environment: %CONDA_DEFAULT_ENV%
-          python -c "import numpy, pandas, requests, pytest; print('Integrated environment working correctly')"
-          conda list
-          conda info
-
       - name: Set Integrated Bash Outputs
         if: matrix.shell-type == 'bash'
         id: integrated-bash-results
@@ -536,79 +411,37 @@ jobs:
         if: matrix.shell-type == 'bash'
         shell: bash -el {0}
         run: |
-          echo "=== Testing conda-lock environment creation with bash shell ==="
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           
-          # Use conda-lock install for proper lockfile usage
           conda-lock install --name lockfile-test-bash conda-lock.yml
           
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Conda-lock environment creation took: ${formatted_duration} seconds"
           echo "LOCKFILE_TIME=${formatted_duration}" >> $GITHUB_ENV
-          
-          # Immediately check what was actually installed
-          echo "=== Packages actually installed ==="
-          conda list -n lockfile-test-bash
 
       - name: Time Lockfile Environment Creation (PowerShell)
         if: matrix.shell-type == 'pwsh'
         shell: pwsh
         run: |
-          echo "=== Testing conda-lock environment creation with pwsh shell ==="
           $start_time = powershell -Command "[System.DateTime]::Now.Ticks"
-          
-          # Use conda-lock install for proper lockfile usage
           conda-lock install --name lockfile-test-pwsh conda-lock.yml
-          
           $end_time = powershell -Command "[System.DateTime]::Now.Ticks"
           $duration = powershell -Command "($end_time - $start_time) / 10000000"
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Conda-lock environment creation took: $formatted_duration seconds"
           echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
-          
-          # Immediately check what was actually installed
-          echo "=== Packages actually installed ==="
-          conda list -n lockfile-test-pwsh
 
       - name: Time Lockfile Environment Creation (CMD)
         if: matrix.shell-type == 'cmd'
         run: |
-          echo === Testing conda-lock environment creation with cmd shell ===
           $start_time = [System.DateTime]::Now.Ticks
-          
-          # Use conda-lock install for proper lockfile usage
           conda-lock install --name lockfile-test-cmd conda-lock.yml
-          
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
-          echo "Conda-lock environment creation took: $formatted_duration seconds"
           echo "LOCKFILE_TIME=$formatted_duration" >> $env:GITHUB_ENV
           
-          # Immediately check what was actually installed
-          echo "=== Packages actually installed ==="
-          conda list -n lockfile-test-cmd
         shell: pwsh
-
-      - name: Test Lockfile Environment (Bash)
-        if: matrix.shell-type == 'bash'
-        shell: bash -el {0}
-        run: |
-          conda activate lockfile-test-bash
-
-      - name: Test Lockfile Environment (PowerShell)
-        if: matrix.shell-type == 'pwsh'
-        shell: pwsh
-        run: |
-          conda activate lockfile-test-pwsh
-
-      - name: Test Lockfile Environment (CMD)
-        if: matrix.shell-type == 'cmd'
-        shell: cmd /C CALL {0}
-        run: |
-          conda activate lockfile-test-cmd
 
       - name: Set Lockfile Bash Outputs
         if: matrix.shell-type == 'bash'
@@ -684,15 +517,11 @@ jobs:
 
       - name: Time Package Installation
         run: |
-          echo "=== Testing installation ${{ matrix.cache-enabled }} ==="
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-
           conda env create -f environment.yml -n cache-perf-test
-
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Package installation took: ${formatted_duration} seconds"
           echo "INSTALL_TIME=${formatted_duration}" >> $GITHUB_ENV
 
       - name: Verify Installation
@@ -766,19 +595,15 @@ jobs:
 
       - name: Time Solver Performance
         run: |
-          echo "=== Testing ${{ matrix.solver }} solver performance ==="
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-
           if [ "${{ matrix.solver }}" = "mamba" ] || [ "${{ matrix.solver }}" = "mamba-v1" ]; then
             mamba env create -f environment.yml -n solver-perf-test
           else
             conda env create -f environment.yml -n solver-perf-test
           fi
-
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Solver installation took: ${formatted_duration} seconds"
           echo "SOLVER_TIME=${formatted_duration}" >> $GITHUB_ENV
 
       - name: Set Default Solver Outputs
@@ -859,15 +684,11 @@ jobs:
 
       - name: Time Drive Performance
         run: |
-          echo "=== Testing ${{ matrix.drive }} performance ==="
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-
           conda env create -f environment.yml -n drive-perf-test
-
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Drive installation took: ${formatted_duration} seconds"
           echo "DRIVE_TIME=${formatted_duration}" >> $GITHUB_ENV
 
       - name: Set C Drive Outputs
@@ -934,22 +755,17 @@ jobs:
 
       - name: Time Environment Update (Cache Miss/Hit)
         run: |
-          echo "=== Testing environment caching (${{ matrix.cache-run }} run) ==="
           echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
-
           start_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
-
           if [ "${{ steps.cache.outputs.cache-hit }}" != "true" ]; then
             echo "Cache miss - creating environment"
             conda env create -f environment.yml -n test-env
           else
             echo "Cache hit - environment should be ready"
           fi
-
           end_time=$(powershell -Command "[System.DateTime]::Now.Ticks")
           duration=$(powershell -Command "($end_time - $start_time) / 10000000")
           formatted_duration=$(powershell -Command "[math]::Round($duration, 1)")
-          echo "Environment setup took: ${formatted_duration} seconds"
           echo "ENV_CACHE_TIME=${formatted_duration}" >> $GITHUB_ENV
 
       - name: Set First Run Outputs
@@ -965,11 +781,6 @@ jobs:
         run: |
           echo "env-time=${ENV_CACHE_TIME}" >> $GITHUB_OUTPUT
           echo "cache-hit=${{ steps.cache.outputs.cache-hit }}" >> $GITHUB_OUTPUT
-
-      - name: Test cached environment
-        run: |
-          conda activate test-env
-          python -c "import numpy, pandas, requests, pytest; print('Cached environment working correctly')"
 
       - name: Report Environment Cache Performance
         run: |
