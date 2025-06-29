@@ -881,7 +881,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create Performance Report
+      - name: Create Report Header
         shell: pwsh
         run: |
           echo "# Miniconda Performance Test Results" > performance-report.md
@@ -890,268 +890,195 @@ jobs:
           echo "**OS:** Windows" >> performance-report.md
           echo "" >> performance-report.md
 
+      - name: Parse Performance Data
+        shell: pwsh
+        run: |
+          # Helper function to safely convert to double
+          function Get-SafeDouble($value) {
+              try {
+                  if ([string]::IsNullOrEmpty($value) -or $value -eq "") { return 0 }
+                  return [math]::Round([double]$value, 1)
+              } catch { return 0 }
+          }
+
+          # Parse all the performance data
+          $data = @{}
+          
+          # Native Conda results
+          $data.native_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-bash-setup }}'
+          $data.native_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-bash-creation }}'
+          $data.native_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-bash-deletion }}'
+          $data.native_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-pwsh-setup }}'
+          $data.native_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-pwsh-creation }}'
+          $data.native_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-pwsh-deletion }}'
+          $data.native_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-cmd-setup }}'
+          $data.native_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-cmd-creation }}'
+          $data.native_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-cmd-deletion }}'
+          
+          # Runner Conda results
+          $data.runner_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-setup }}'
+          $data.runner_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-creation }}'
+          $data.runner_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-deletion }}'
+          $data.runner_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-setup }}'
+          $data.runner_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-creation }}'
+          $data.runner_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-deletion }}'
+          $data.runner_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-setup }}'
+          $data.runner_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-creation }}'
+          $data.runner_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-deletion }}'
+          
+          # Latest Miniconda results
+          $data.latest_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-setup }}'
+          $data.latest_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-creation }}'
+          $data.latest_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-deletion }}'
+          $data.latest_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-setup }}'
+          $data.latest_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-creation }}'
+          $data.latest_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-deletion }}'
+          $data.latest_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-setup }}'
+          $data.latest_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-creation }}'
+          $data.latest_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-deletion }}'
+
+          # Other performance metrics
+          $data.integrated_bash = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-bash-setup }}'
+          $data.integrated_pwsh = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-pwsh-setup }}'
+          $data.integrated_cmd = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-cmd-setup }}'
+          $data.update_bash = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-bash-time }}'
+          $data.update_pwsh = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-pwsh-time }}'
+          $data.update_cmd = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-cmd-time }}'
+          $data.lockfile_bash = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-bash-time }}'
+          $data.lockfile_pwsh = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-pwsh-time }}'
+          $data.lockfile_cmd = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-cmd-time }}'
+          $data.without_cache = Get-SafeDouble '${{ needs.caching-performance.outputs.without-cache-time }}'
+          $data.with_cache = Get-SafeDouble '${{ needs.caching-performance.outputs.with-cache-time }}'
+          $data.default_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.default-solver-time }}'
+          $data.mamba_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}'
+          $data.mamba_v1_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}'
+          $data.c_drive = Get-SafeDouble '${{ needs.drive-optimization-proof.outputs.c-drive-time }}'
+          $data.d_drive = Get-SafeDouble '${{ needs.drive-optimization-proof.outputs.d-drive-time }}'
+          $data.first_run = Get-SafeDouble '${{ needs.environment-caching.outputs.first-run-time }}'
+          $data.second_run = Get-SafeDouble '${{ needs.environment-caching.outputs.second-run-time }}'
+
+          # Calculate totals
+          $data.native_bash_total = [math]::Round(($data.native_bash_setup + $data.native_bash_creation + $data.native_bash_deletion), 1)
+          $data.native_pwsh_total = [math]::Round(($data.native_pwsh_setup + $data.native_pwsh_creation + $data.native_pwsh_deletion), 1)
+          $data.native_cmd_total = [math]::Round(($data.native_cmd_setup + $data.native_cmd_creation + $data.native_cmd_deletion), 1)
+          $data.runner_bash_total = [math]::Round(($data.runner_bash_setup + $data.runner_bash_creation + $data.runner_bash_deletion), 1)
+          $data.runner_pwsh_total = [math]::Round(($data.runner_pwsh_setup + $data.runner_pwsh_creation + $data.runner_pwsh_deletion), 1)
+          $data.runner_cmd_total = [math]::Round(($data.runner_cmd_setup + $data.runner_cmd_creation + $data.runner_cmd_deletion), 1)
+          $data.latest_bash_total = [math]::Round(($data.latest_bash_setup + $data.latest_bash_creation + $data.latest_bash_deletion), 1)
+          $data.latest_pwsh_total = [math]::Round(($data.latest_pwsh_setup + $data.latest_pwsh_creation + $data.latest_pwsh_deletion), 1)
+          $data.latest_cmd_total = [math]::Round(($data.latest_cmd_setup + $data.latest_cmd_creation + $data.latest_cmd_deletion), 1)
+
+          # Save data to file for next steps
+          $data | ConvertTo-Json | Out-File -FilePath "perf-data.json"
+
+      - name: Create Main Comparison Table
+        shell: pwsh
+        run: |
+          $data = Get-Content "perf-data.json" | ConvertFrom-Json
+
           echo "## Native vs Setup Miniconda Comparison by Shell" >> performance-report.md
           echo "| Setup Type | Shell | Miniconda Setup | Environment Creation | Environment Deletion | Total Time |" >> performance-report.md
           echo "|------------|-------|-----------------|---------------------|---------------------|------------|" >> performance-report.md
-
-          # Helper function to safely convert to double with fallback and format
-          function Get-SafeDouble($value) {
-              try {
-                  if ([string]::IsNullOrEmpty($value) -or $value -eq "") {
-                      return 0
-                  }
-                  return [math]::Round([double]$value, 1)
-              } catch {
-                  return 0
-              }
-          }
-
-          # Native Conda results (True Baseline)
-          $native_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-bash-setup }}'
-          $native_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-bash-creation }}'
-          $native_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-bash-deletion }}'
-          $native_bash_total = [math]::Round(($native_bash_setup + $native_bash_creation + $native_bash_deletion), 1)
-
-          $native_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-pwsh-setup }}'
-          $native_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-pwsh-creation }}'
-          $native_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-pwsh-deletion }}'
-          $native_pwsh_total = [math]::Round(($native_pwsh_setup + $native_pwsh_creation + $native_pwsh_deletion), 1)
-
-          $native_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-cmd-setup }}'
-          $native_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-cmd-creation }}'
-          $native_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.native-conda-cmd-deletion }}'
-          $native_cmd_total = [math]::Round(($native_cmd_setup + $native_cmd_creation + $native_cmd_deletion), 1)
-
-          echo "| **Native Runner Conda (Baseline)** | bash | ${native_bash_setup}s | ${native_bash_creation}s | ${native_bash_deletion}s | **${native_bash_total}s** |" >> performance-report.md
-          echo "| **Native Runner Conda (Baseline)** | pwsh | ${native_pwsh_setup}s | ${native_pwsh_creation}s | ${native_pwsh_deletion}s | **${native_pwsh_total}s** |" >> performance-report.md
-          echo "| **Native Runner Conda (Baseline)** | cmd | ${native_cmd_setup}s | ${native_cmd_creation}s | ${native_cmd_deletion}s | **${native_cmd_total}s** |" >> performance-report.md
-
-          # Setup Runner Conda results (using setup-miniconda action)
-          $runner_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-setup }}'
-          $runner_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-creation }}'
-          $runner_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-bash-deletion }}'
-          $runner_bash_total = [math]::Round(($runner_bash_setup + $runner_bash_creation + $runner_bash_deletion), 1)
-
-          $runner_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-setup }}'
-          $runner_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-creation }}'
-          $runner_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-pwsh-deletion }}'
-          $runner_pwsh_total = [math]::Round(($runner_pwsh_setup + $runner_pwsh_creation + $runner_pwsh_deletion), 1)
-
-          $runner_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-setup }}'
-          $runner_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-creation }}'
-          $runner_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.runner-conda-cmd-deletion }}'
-          $runner_cmd_total = [math]::Round(($runner_cmd_setup + $runner_cmd_creation + $runner_cmd_deletion), 1)
-
-          echo "| Setup Runner Conda | bash | ${runner_bash_setup}s | ${runner_bash_creation}s | ${runner_bash_deletion}s | ${runner_bash_total}s |" >> performance-report.md
-          echo "| Setup Runner Conda | pwsh | ${runner_pwsh_setup}s | ${runner_pwsh_creation}s | ${runner_pwsh_deletion}s | ${runner_pwsh_total}s |" >> performance-report.md
-          echo "| Setup Runner Conda | cmd | ${runner_cmd_setup}s | ${runner_cmd_creation}s | ${runner_cmd_deletion}s | ${runner_cmd_total}s |" >> performance-report.md
-
-          # Latest Miniconda results
-          $latest_bash_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-setup }}'
-          $latest_bash_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-creation }}'
-          $latest_bash_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-bash-deletion }}'
-          $latest_bash_total = [math]::Round(($latest_bash_setup + $latest_bash_creation + $latest_bash_deletion), 1)
-
-          $latest_pwsh_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-setup }}'
-          $latest_pwsh_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-creation }}'
-          $latest_pwsh_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-pwsh-deletion }}'
-          $latest_pwsh_total = [math]::Round(($latest_pwsh_setup + $latest_pwsh_creation + $latest_pwsh_deletion), 1)
-
-          $latest_cmd_setup = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-setup }}'
-          $latest_cmd_creation = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-creation }}'
-          $latest_cmd_deletion = Get-SafeDouble '${{ needs.bundled-vs-latest.outputs.latest-miniconda-cmd-deletion }}'
-          $latest_cmd_total = [math]::Round(($latest_cmd_setup + $latest_cmd_creation + $latest_cmd_deletion), 1)
-
-          echo "| Latest Miniconda | bash | ${latest_bash_setup}s | ${latest_bash_creation}s | ${latest_bash_deletion}s | ${latest_bash_total}s |" >> performance-report.md
-          echo "| Latest Miniconda | pwsh | ${latest_pwsh_setup}s | ${latest_pwsh_creation}s | ${latest_pwsh_deletion}s | ${latest_pwsh_total}s |" >> performance-report.md
-          echo "| Latest Miniconda | cmd | ${latest_cmd_setup}s | ${latest_cmd_creation}s | ${latest_cmd_deletion}s | ${latest_cmd_total}s |" >> performance-report.md
+          echo "| **Native Runner Conda (Baseline)** | bash | $($data.native_bash_setup)s | $($data.native_bash_creation)s | $($data.native_bash_deletion)s | **$($data.native_bash_total)s** |" >> performance-report.md
+          echo "| **Native Runner Conda (Baseline)** | pwsh | $($data.native_pwsh_setup)s | $($data.native_pwsh_creation)s | $($data.native_pwsh_deletion)s | **$($data.native_pwsh_total)s** |" >> performance-report.md
+          echo "| **Native Runner Conda (Baseline)** | cmd | $($data.native_cmd_setup)s | $($data.native_cmd_creation)s | $($data.native_cmd_deletion)s | **$($data.native_cmd_total)s** |" >> performance-report.md
+          echo "| Setup Runner Conda | bash | $($data.runner_bash_setup)s | $($data.runner_bash_creation)s | $($data.runner_bash_deletion)s | $($data.runner_bash_total)s |" >> performance-report.md
+          echo "| Setup Runner Conda | pwsh | $($data.runner_pwsh_setup)s | $($data.runner_pwsh_creation)s | $($data.runner_pwsh_deletion)s | $($data.runner_pwsh_total)s |" >> performance-report.md
+          echo "| Setup Runner Conda | cmd | $($data.runner_cmd_setup)s | $($data.runner_cmd_creation)s | $($data.runner_cmd_deletion)s | $($data.runner_cmd_total)s |" >> performance-report.md
+          echo "| Latest Miniconda | bash | $($data.latest_bash_setup)s | $($data.latest_bash_creation)s | $($data.latest_bash_deletion)s | $($data.latest_bash_total)s |" >> performance-report.md
+          echo "| Latest Miniconda | pwsh | $($data.latest_pwsh_setup)s | $($data.latest_pwsh_creation)s | $($data.latest_pwsh_deletion)s | $($data.latest_pwsh_total)s |" >> performance-report.md
+          echo "| Latest Miniconda | cmd | $($data.latest_cmd_setup)s | $($data.latest_cmd_creation)s | $($data.latest_cmd_deletion)s | $($data.latest_cmd_total)s |" >> performance-report.md
           echo "" >> performance-report.md
+
+      - name: Create Overhead Analysis
+        shell: pwsh
+        run: |
+          $data = Get-Content "perf-data.json" | ConvertFrom-Json
 
           echo "## Setup-Miniconda Action Overhead Analysis" >> performance-report.md
-          echo "| Shell | Native Baseline | Setup Action (Same Conda) | Action Overhead | Latest Miniconda | vs Baseline |" >> performance-report.md
-          echo "|-------|-----------------|---------------------------|-----------------|------------------|-------------|" >> performance-report.md
+          echo "| Shell | Native Baseline | Setup Action | Action Overhead | Latest Miniconda | vs Baseline |" >> performance-report.md
+          echo "|-------|-----------------|--------------|-----------------|------------------|-------------|" >> performance-report.md
 
-          # Calculate overhead for each shell
-          $bash_overhead = if ($native_bash_total -gt 0 -and $runner_bash_total -gt 0) { 
-              [math]::Round(($runner_bash_total - $native_bash_total), 1) 
+          # Calculate overheads and ratios
+          $bash_overhead = if ($data.native_bash_total -gt 0 -and $data.runner_bash_total -gt 0) { 
+              [math]::Round(($data.runner_bash_total - $data.native_bash_total), 1) 
           } else { 'N/A' }
-          $pwsh_overhead = if ($native_pwsh_total -gt 0 -and $runner_pwsh_total -gt 0) { 
-              [math]::Round(($runner_pwsh_total - $native_pwsh_total), 1) 
+          $pwsh_overhead = if ($data.native_pwsh_total -gt 0 -and $data.runner_pwsh_total -gt 0) { 
+              [math]::Round(($data.runner_pwsh_total - $data.native_pwsh_total), 1) 
           } else { 'N/A' }
-          $cmd_overhead = if ($native_cmd_total -gt 0 -and $runner_cmd_total -gt 0) { 
-              [math]::Round(($runner_cmd_total - $native_cmd_total), 1) 
+          $cmd_overhead = if ($data.native_cmd_total -gt 0 -and $data.runner_cmd_total -gt 0) { 
+              [math]::Round(($data.runner_cmd_total - $data.native_cmd_total), 1) 
           } else { 'N/A' }
 
-          # Calculate vs baseline ratios
-          $latest_bash_vs_baseline = if ($native_bash_total -gt 0 -and $latest_bash_total -gt 0) { 
-              $ratio = [math]::Round(($latest_bash_total / $native_bash_total), 1)
+          $latest_bash_vs_baseline = if ($data.native_bash_total -gt 0 -and $data.latest_bash_total -gt 0) { 
+              $ratio = [math]::Round(($data.latest_bash_total / $data.native_bash_total), 1)
               "${ratio}x slower"
           } else { 'N/A' }
-          $latest_pwsh_vs_baseline = if ($native_pwsh_total -gt 0 -and $latest_pwsh_total -gt 0) { 
-              $ratio = [math]::Round(($latest_pwsh_total / $native_pwsh_total), 1)
+          $latest_pwsh_vs_baseline = if ($data.native_pwsh_total -gt 0 -and $data.latest_pwsh_total -gt 0) { 
+              $ratio = [math]::Round(($data.latest_pwsh_total / $data.native_pwsh_total), 1)
               "${ratio}x slower"
           } else { 'N/A' }
-          $latest_cmd_vs_baseline = if ($native_cmd_total -gt 0 -and $latest_cmd_total -gt 0) { 
-              $ratio = [math]::Round(($latest_cmd_total / $native_cmd_total), 1)
+          $latest_cmd_vs_baseline = if ($data.native_cmd_total -gt 0 -and $data.latest_cmd_total -gt 0) { 
+              $ratio = [math]::Round(($data.latest_cmd_total / $data.native_cmd_total), 1)
               "${ratio}x slower"
           } else { 'N/A' }
 
-          echo "| bash | **${native_bash_total}s** | ${runner_bash_total}s | +${bash_overhead}s | ${latest_bash_total}s | $latest_bash_vs_baseline |" >> performance-report.md
-          echo "| pwsh | **${native_pwsh_total}s** | ${runner_pwsh_total}s | +${pwsh_overhead}s | ${latest_pwsh_total}s | $latest_pwsh_vs_baseline |" >> performance-report.md
-          echo "| cmd | **${native_cmd_total}s** | ${runner_cmd_total}s | +${cmd_overhead}s | ${latest_cmd_total}s | $latest_cmd_vs_baseline |" >> performance-report.md
+          echo "| bash | **$($data.native_bash_total)s** | $($data.runner_bash_total)s | +${bash_overhead}s | $($data.latest_bash_total)s | $latest_bash_vs_baseline |" >> performance-report.md
+          echo "| pwsh | **$($data.native_pwsh_total)s** | $($data.runner_pwsh_total)s | +${pwsh_overhead}s | $($data.latest_pwsh_total)s | $latest_pwsh_vs_baseline |" >> performance-report.md
+          echo "| cmd | **$($data.native_cmd_total)s** | $($data.runner_cmd_total)s | +${cmd_overhead}s | $($data.latest_cmd_total)s | $latest_cmd_vs_baseline |" >> performance-report.md
           echo "" >> performance-report.md
 
-          echo "## Integrated Environment Setup vs Native Two-Step Approach" >> performance-report.md
-          echo "| Approach | Shell | Setup Time | vs Native Two-Step |" >> performance-report.md
-          echo "|----------|-------|------------|-------------------|" >> performance-report.md
+      - name: Create Additional Analysis Tables
+        shell: pwsh
+        run: |
+          $data = Get-Content "perf-data.json" | ConvertFrom-Json
 
-          $integrated_bash = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-bash-setup }}'
-          $integrated_pwsh = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-pwsh-setup }}'  
-          $integrated_cmd = Get-SafeDouble '${{ needs.integrated-environment-setup.outputs.integrated-cmd-setup }}'
-
-          # Compare with Native two-step approach (setup + creation, excluding deletion)
-          $native_bash_two_step = [math]::Round(($native_bash_setup + $native_bash_creation), 1)
-          $native_pwsh_two_step = [math]::Round(($native_pwsh_setup + $native_pwsh_creation), 1)
-          $native_cmd_two_step = [math]::Round(($native_cmd_setup + $native_cmd_creation), 1)
-
-          $integrated_bash_vs_native = if ($integrated_bash -gt 0 -and $native_bash_two_step -gt 0) { 
-              $ratio = [math]::Round(($integrated_bash / $native_bash_two_step), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          $integrated_pwsh_vs_native = if ($integrated_pwsh -gt 0 -and $native_pwsh_two_step -gt 0) { 
-              $ratio = [math]::Round(($integrated_pwsh / $native_pwsh_two_step), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          $integrated_cmd_vs_native = if ($integrated_cmd -gt 0 -and $native_cmd_two_step -gt 0) { 
-              $ratio = [math]::Round(($integrated_cmd / $native_cmd_two_step), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          echo "| Integrated | bash | ${integrated_bash}s | $integrated_bash_vs_native |" >> performance-report.md
-          echo "| Integrated | pwsh | ${integrated_pwsh}s | $integrated_pwsh_vs_native |" >> performance-report.md
-          echo "| Integrated | cmd | ${integrated_cmd}s | $integrated_cmd_vs_native |" >> performance-report.md
-          echo "| **Native Two-Step** | bash | **${native_bash_two_step}s** | - |" >> performance-report.md
-          echo "| **Native Two-Step** | pwsh | **${native_pwsh_two_step}s** | - |" >> performance-report.md
-          echo "| **Native Two-Step** | cmd | **${native_cmd_two_step}s** | - |" >> performance-report.md
-          echo "" >> performance-report.md
-
-          echo "## Existing Environment Update vs Native Environment Creation" >> performance-report.md
-          echo "| Approach | Shell | Time | vs Native Creation |" >> performance-report.md
-          echo "|----------|-------|------|-------------------|" >> performance-report.md
-
-          $update_bash = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-bash-time }}'
-          $update_pwsh = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-pwsh-time }}'  
-          $update_cmd = Get-SafeDouble '${{ needs.existing-environment-update.outputs.update-cmd-time }}'
-
-          # Compare with Native environment creation times
-          $update_bash_vs_native = if ($update_bash -gt 0 -and $native_bash_creation -gt 0) { 
-              $ratio = [math]::Round(($update_bash / $native_bash_creation), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          $update_pwsh_vs_native = if ($update_pwsh -gt 0 -and $native_pwsh_creation -gt 0) { 
-              $ratio = [math]::Round(($update_pwsh / $native_pwsh_creation), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          $update_cmd_vs_native = if ($update_cmd -gt 0 -and $native_cmd_creation -gt 0) { 
-              $ratio = [math]::Round(($update_cmd / $native_cmd_creation), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          echo "| Update Existing | bash | ${update_bash}s | $update_bash_vs_native |" >> performance-report.md
-          echo "| Update Existing | pwsh | ${update_pwsh}s | $update_pwsh_vs_native |" >> performance-report.md
-          echo "| Update Existing | cmd | ${update_cmd}s | $update_cmd_vs_native |" >> performance-report.md
-          echo "| **Native Create New** | bash | **${native_bash_creation}s** | - |" >> performance-report.md
-          echo "| **Native Create New** | pwsh | **${native_pwsh_creation}s** | - |" >> performance-report.md
-          echo "| **Native Create New** | cmd | **${native_cmd_creation}s** | - |" >> performance-report.md
-          echo "" >> performance-report.md
-
-          echo "## Lockfile vs Native Standard Environment Creation" >> performance-report.md
-          echo "| Approach | Shell | Time | vs Native Creation |" >> performance-report.md
-          echo "|----------|-------|------|-------------------|" >> performance-report.md
-
-          $lockfile_bash = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-bash-time }}'
-          $lockfile_pwsh = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-pwsh-time }}'  
-          $lockfile_cmd = Get-SafeDouble '${{ needs.lockfile-performance.outputs.lockfile-cmd-time }}'
-
-          # Compare with Native environment creation times
-          $lockfile_bash_vs_native = if ($lockfile_bash -gt 0 -and $native_bash_creation -gt 0) { 
-              $ratio = [math]::Round(($lockfile_bash / $native_bash_creation), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          $lockfile_pwsh_vs_native = if ($lockfile_pwsh -gt 0 -and $native_pwsh_creation -gt 0) { 
-              $ratio = [math]::Round(($lockfile_pwsh / $native_pwsh_creation), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          $lockfile_cmd_vs_native = if ($lockfile_cmd -gt 0 -and $native_cmd_creation -gt 0) { 
-              $ratio = [math]::Round(($lockfile_cmd / $native_cmd_creation), 1)
-              if ($ratio -gt 1) { "${ratio}x slower" } else { "$([math]::Round((1 / $ratio), 1))x faster" }
-          } else { 'N/A' }
-
-          echo "| Lockfile | bash | ${lockfile_bash}s | $lockfile_bash_vs_native |" >> performance-report.md
-          echo "| Lockfile | pwsh | ${lockfile_pwsh}s | $lockfile_pwsh_vs_native |" >> performance-report.md
-          echo "| Lockfile | cmd | ${lockfile_cmd}s | $lockfile_cmd_vs_native |" >> performance-report.md
-          echo "| **Native Standard** | bash | **${native_bash_creation}s** | - |" >> performance-report.md
-          echo "| **Native Standard** | pwsh | **${native_pwsh_creation}s** | - |" >> performance-report.md
-          echo "| **Native Standard** | cmd | **${native_cmd_creation}s** | - |" >> performance-report.md
-          echo "" >> performance-report.md
-
+          # Other performance tables
           echo "## Package Caching Impact" >> performance-report.md
           echo "| Cache Mode | Installation Time | Speedup |" >> performance-report.md
           echo "|------------|-------------------|---------|" >> performance-report.md
-          $without_cache = Get-SafeDouble '${{ needs.caching-performance.outputs.without-cache-time }}'
-          $with_cache = Get-SafeDouble '${{ needs.caching-performance.outputs.with-cache-time }}'
-          $cache_speedup = if ($with_cache -gt 0) { [math]::Round(($without_cache / $with_cache), 1) } else { 'N/A' }
-          echo "| Without Cache | ${without_cache}s | - |" >> performance-report.md
-          echo "| With Cache | ${with_cache}s | ${cache_speedup}x |" >> performance-report.md
+          $cache_speedup = if ($data.with_cache -gt 0) { [math]::Round(($data.without_cache / $data.with_cache), 1) } else { 'N/A' }
+          echo "| Without Cache | $($data.without_cache)s | - |" >> performance-report.md
+          echo "| With Cache | $($data.with_cache)s | ${cache_speedup}x |" >> performance-report.md
           echo "" >> performance-report.md
 
           echo "## Solver Performance" >> performance-report.md
           echo "| Solver | Installation Time | vs Default |" >> performance-report.md
           echo "|--------|-------------------|------------|" >> performance-report.md
-          $default_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.default-solver-time }}'
-          $mamba_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}'
-          $mamba_v1_solver = Get-SafeDouble '${{ needs.solver-optimization-proof.outputs.mamba-v1-solver-time }}'
-
-          $mamba_vs_default = if ($mamba_solver -gt 0) { [math]::Round(($default_solver / $mamba_solver), 1) } else { 'N/A' }
-          $mamba_v1_vs_default = if ($mamba_v1_solver -gt 0) { [math]::Round(($default_solver / $mamba_v1_solver), 1) } else { 'N/A' }
-
-          echo "| Default (Libmamba) | ${default_solver}s | - |" >> performance-report.md
-          echo "| Mamba | ${mamba_solver}s | ${mamba_vs_default}x |" >> performance-report.md
-          echo "| Mamba v1 | ${mamba_v1_solver}s | ${mamba_v1_vs_default}x |" >> performance-report.md
+          $mamba_vs_default = if ($data.mamba_solver -gt 0) { [math]::Round(($data.default_solver / $data.mamba_solver), 1) } else { 'N/A' }
+          $mamba_v1_vs_default = if ($data.mamba_v1_solver -gt 0) { [math]::Round(($data.default_solver / $data.mamba_v1_solver), 1) } else { 'N/A' }
+          echo "| Default (Libmamba) | $($data.default_solver)s | - |" >> performance-report.md
+          echo "| Mamba | $($data.mamba_solver)s | ${mamba_vs_default}x |" >> performance-report.md
+          echo "| Mamba v1 | $($data.mamba_v1_solver)s | ${mamba_v1_vs_default}x |" >> performance-report.md
           echo "" >> performance-report.md
 
           echo "## Drive Performance" >> performance-report.md
           echo "| Drive | Installation Time | vs C: Drive |" >> performance-report.md
           echo "|-------|-------------------|-------------|" >> performance-report.md
-          $c_drive = Get-SafeDouble '${{ needs.drive-optimization-proof.outputs.c-drive-time }}'
-          $d_drive = Get-SafeDouble '${{ needs.drive-optimization-proof.outputs.d-drive-time }}'
-          $drive_comparison = if ($d_drive -gt 0) { [math]::Round(($c_drive / $d_drive), 1) } else { 'N/A' }
-          echo "| C: Drive | ${c_drive}s | - |" >> performance-report.md
-          echo "| D: Drive | ${d_drive}s | ${drive_comparison}x |" >> performance-report.md
+          $drive_comparison = if ($data.d_drive -gt 0) { [math]::Round(($data.c_drive / $data.d_drive), 1) } else { 'N/A' }
+          echo "| C: Drive | $($data.c_drive)s | - |" >> performance-report.md
+          echo "| D: Drive | $($data.d_drive)s | ${drive_comparison}x |" >> performance-report.md
           echo "" >> performance-report.md
 
           echo "## Environment Caching" >> performance-report.md
           echo "| Run | Cache Hit | Setup Time | Speedup |" >> performance-report.md
           echo "|-----|-----------|------------|---------|" >> performance-report.md
-          $first_run = Get-SafeDouble '${{ needs.environment-caching.outputs.first-run-time }}'
-          $second_run = Get-SafeDouble '${{ needs.environment-caching.outputs.second-run-time }}'
-          $env_cache_speedup = if ($second_run -gt 0) { [math]::Round(($first_run / $second_run), 1) } else { 'N/A' }
-          echo "| First | ${{ needs.environment-caching.outputs.first-cache-hit }} | ${first_run}s | - |" >> performance-report.md
-          echo "| Second | ${{ needs.environment-caching.outputs.second-cache-hit }} | ${second_run}s | ${env_cache_speedup}x |" >> performance-report.md
+          $env_cache_speedup = if ($data.second_run -gt 0) { [math]::Round(($data.first_run / $data.second_run), 1) } else { 'N/A' }
+          echo "| First | ${{ needs.environment-caching.outputs.first-cache-hit }} | $($data.first_run)s | - |" >> performance-report.md
+          echo "| Second | ${{ needs.environment-caching.outputs.second-cache-hit }} | $($data.second_run)s | ${env_cache_speedup}x |" >> performance-report.md
           echo "" >> performance-report.md
+
+      - name: Create Summary
+        shell: pwsh
+        run: |
+          $data = Get-Content "perf-data.json" | ConvertFrom-Json
 
           echo "## Summary & Recommendations" >> performance-report.md
 
           # Determine fastest base setup
-          $fastest_base = if ($native_bash_creation -lt $runner_bash_creation -and $native_bash_creation -lt $latest_bash_creation -and $native_bash_creation -gt 0) { 
+          $fastest_base = if ($data.native_bash_creation -lt $data.runner_bash_creation -and $data.native_bash_creation -lt $data.latest_bash_creation -and $data.native_bash_creation -gt 0) { 
               'Native Runner Conda (True Baseline)' 
-          } elseif ($runner_bash_creation -lt $latest_bash_creation -and $runner_bash_creation -gt 0) { 
+          } elseif ($data.runner_bash_creation -lt $data.latest_bash_creation -and $data.runner_bash_creation -gt 0) { 
               'Setup Runner Conda' 
           } else { 
               'Latest Miniconda' 
@@ -1159,43 +1086,34 @@ jobs:
           echo "- **Fastest Base Setup:** $fastest_base" >> performance-report.md
 
           # Calculate setup-miniconda action overhead
-          $avg_action_overhead = if ($native_bash_total -gt 0 -and $runner_bash_total -gt 0 -and $native_pwsh_total -gt 0 -and $runner_pwsh_total -gt 0) {
-              $bash_overhead_calc = $runner_bash_total - $native_bash_total
-              $pwsh_overhead_calc = $runner_pwsh_total - $native_pwsh_total
+          $avg_action_overhead = if ($data.native_bash_total -gt 0 -and $data.runner_bash_total -gt 0 -and $data.native_pwsh_total -gt 0 -and $data.runner_pwsh_total -gt 0) {
+              $bash_overhead_calc = $data.runner_bash_total - $data.native_bash_total
+              $pwsh_overhead_calc = $data.runner_pwsh_total - $data.native_pwsh_total
               [math]::Round((($bash_overhead_calc + $pwsh_overhead_calc) / 2), 1)
           } else { 0 }
           echo "- **Setup-Miniconda Action Overhead:** ~${avg_action_overhead}s average" >> performance-report.md
 
           # Cache benefit calculation
-          $cache_benefit = if ($without_cache -gt 0 -and $with_cache -gt 0) {
-              [math]::Round((($without_cache - $with_cache) / $without_cache * 100), 1)
+          $cache_benefit = if ($data.without_cache -gt 0 -and $data.with_cache -gt 0) {
+              [math]::Round((($data.without_cache - $data.with_cache) / $data.without_cache * 100), 1)
           } else { 0 }
           echo "- **Cache Benefit:** ${cache_benefit}% faster" >> performance-report.md
 
-          # Determine fastest solver
-          $solver_times = @{
-              'Default (Libmamba)' = $default_solver
-              'Mamba' = $mamba_solver
-              'Mamba v1' = $mamba_v1_solver
+          # Fastest shell for native
+          $fastest_native_shell = if ($data.native_bash_total -le $data.native_pwsh_total -and $data.native_bash_total -le $data.native_cmd_total -and $data.native_bash_total -gt 0) { 
+              'bash' 
+          } elseif ($data.native_pwsh_total -le $data.native_cmd_total -and $data.native_pwsh_total -gt 0) { 
+              'pwsh' 
+          } else { 
+              'cmd' 
           }
-          $fastest_solver = ($solver_times.GetEnumerator() | Where-Object { $_.Value -gt 0 } | Sort-Object Value | Select-Object -First 1).Name
-          if (-not $fastest_solver) { $fastest_solver = 'Unable to determine' }
-          echo "- **Fastest Solver:** $fastest_solver" >> performance-report.md
-
-          # Drive impact
-          $drive_impact = if ($c_drive -lt $d_drive) { 'C: drive faster' } else { 'D: drive faster' }
-          echo "- **Drive Impact:** $drive_impact" >> performance-report.md
-
-          echo "- **Fastest Shell (Native):** $(if ($native_bash_total -le $native_pwsh_total -and $native_bash_total -le $native_cmd_total -and $native_bash_total -gt 0) { 'bash' } elseif ($native_pwsh_total -le $native_cmd_total -and $native_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
-          echo "- **Fastest Shell (Setup Action):** $(if ($runner_bash_total -le $runner_pwsh_total -and $runner_bash_total -le $runner_cmd_total -and $runner_bash_total -gt 0) { 'bash' } elseif ($runner_pwsh_total -le $runner_cmd_total -and $runner_pwsh_total -gt 0) { 'pwsh' } else { 'cmd' })" >> performance-report.md
+          echo "- **Fastest Shell (Native):** $fastest_native_shell" >> performance-report.md
 
           echo "" >> performance-report.md
           echo "### Key Findings" >> performance-report.md
-          echo "1. **Native Conda is fastest**: Using the pre-installed Conda without setup-miniconda action provides the best performance" >> performance-report.md
-          echo "2. **Setup-miniconda overhead**: The action adds ~${avg_action_overhead}s overhead even when using the same Conda version" >> performance-report.md
-          echo "3. **Environment updates**: $(if ($avg_update_time -lt $avg_creation_time) { 'Faster' } else { 'Slower' }) than creating new environments" >> performance-report.md
-          echo "4. **Lockfiles**: $(if ($avg_lockfile_time -lt $avg_creation_time) { 'Faster' } else { 'Slower' }) than standard environment.yml files" >> performance-report.md
-          echo "5. **Caching**: Provides significant speedup (${cache_benefit}% improvement)" >> performance-report.md
+          echo "1. **Native Conda is fastest**: Using pre-installed Conda without setup-miniconda provides best performance" >> performance-report.md
+          echo "2. **Setup-miniconda overhead**: The action adds ~${avg_action_overhead}s overhead even with same Conda version" >> performance-report.md
+          echo "3. **Caching**: Provides significant speedup (${cache_benefit}% improvement)" >> performance-report.md
 
       - name: Upload Performance Report
         uses: actions/upload-artifact@v4
@@ -1229,3 +1147,5 @@ jobs:
           echo "With Cache: ${{ needs.caching-performance.outputs.with-cache-time }}s"
           echo "Default Solver: ${{ needs.solver-optimization-proof.outputs.default-solver-time }}s"
           echo "Mamba Solver: ${{ needs.solver-optimization-proof.outputs.mamba-solver-time }}s"
+          echo ""
+          echo "Performance report generated and uploaded as artifact."
