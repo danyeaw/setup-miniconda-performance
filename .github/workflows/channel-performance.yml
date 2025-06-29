@@ -14,6 +14,7 @@ jobs:
   default-channels:
     name: Default Channels (conda-forge + defaults)
     runs-on: windows-latest
+    timeout-minutes: 25
     outputs:
       total-time: ${{ steps.default-results.outputs.total-time }}
       packages-found: ${{ steps.default-results.outputs.packages-found }}
@@ -37,7 +38,20 @@ jobs:
           channels: conda-forge,defaults
           auto-activate-base: false
 
+      - name: Debug Environment
+        run: |
+          echo "=== Environment Debug Info ==="
+          echo "Conda version: $(conda --version)"
+          echo "PowerShell version: $($PSVersionTable.PSVersion)"
+          echo "Available channels:"
+          conda config --show channels
+          echo ""
+          echo "Conda info:"
+          conda info --json | ConvertFrom-Json | Select-Object conda_version, platform
+          echo "=========================="
+
       - name: Create Environment with Default Channels
+        timeout-minutes: 20
         run: |
           echo "Creating environment using default channels..."
           conda info
@@ -45,11 +59,12 @@ jobs:
           echo "Active channels:"
           conda config --show channels
           echo ""
-          conda env create -f environment.yml -n default-channels-test
+          conda env create -f environment.yml -n default-channels-test --verbose
 
       - name: Count Available Packages
         run: |
           echo "Searching available packages..."
+          # FIXED: Use text parsing instead of broken JSON parsing
           $search_output = conda search 2>&1 | Where-Object { 
             $_ -match "^\w+\s+" -and 
             $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|$)" 
@@ -57,8 +72,9 @@ jobs:
           $package_count = ($search_output | Measure-Object).Count
           
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Available packages: $package_count"
+          echo "Available packages in default channels: $package_count"
           
+          # Debug: show first few package names
           echo "Sample packages found:"
           $search_output | Select-Object -First 5 | ForEach-Object { echo "  $_" }
 
@@ -91,6 +107,7 @@ jobs:
   custom-channel-only:
     name: Custom Channel Only (danyeaw)
     runs-on: windows-latest
+    timeout-minutes: 25
     outputs:
       total-time: ${{ steps.custom-results.outputs.total-time }}
       packages-found: ${{ steps.custom-results.outputs.packages-found }}
@@ -115,36 +132,95 @@ jobs:
           channels: danyeaw
           auto-activate-base: false
 
+      - name: Configure Strict Channel Usage
+        run: |
+          echo "Configuring conda to ONLY use custom channel..."
+          
+          # Remove all default channels
+          conda config --remove channels defaults 2>$null || echo "defaults not in config"
+          conda config --remove channels conda-forge 2>$null || echo "conda-forge not in config"
+          
+          # Set ONLY our custom channel
+          conda config --set channels danyeaw
+          
+          # Disable channel priority (use only specified channels)
+          conda config --set channel_priority disabled
+          
+          # Show final configuration
+          echo "Final channel configuration:"
+          conda config --show channels
+          
+          echo "Channel priority setting:"
+          conda config --show channel_priority
+
+      - name: Verify Channel Isolation
+        run: |
+          echo "=== Verifying channel isolation ==="
+          echo "Configured channels:"
+          conda config --get channels
+          
+          echo ""
+          echo "Testing search with explicit channel:"
+          $explicit_search = conda search -c danyeaw --override-channels 2>&1 | Where-Object { $_ -match "^\w+\s+" -and $_ -notmatch "^(Loading|Collecting|#|Name\s+Version)" }
+          $explicit_count = ($explicit_search | Measure-Object).Count
+          echo "Explicit channel search found: $explicit_count packages"
+          
+          echo ""
+          echo "Testing default search (should be same as explicit):"
+          $default_search = conda search 2>&1 | Where-Object { $_ -match "^\w+\s+" -and $_ -notmatch "^(Loading|Collecting|#|Name\s+Version)" }
+          $default_count = ($default_search | Measure-Object).Count
+          echo "Default search found: $default_count packages"
+          
+          if ($explicit_count -eq $default_count) {
+            echo "✅ Channel isolation successful - both searches return same count"
+          } else {
+            echo "❌ Channel isolation failed - default search accessing other channels"
+            echo "This means conda is still using fallback channels"
+          }
+
       - name: Create Environment with Custom Channel Only
         continue-on-error: true
+        timeout-minutes: 15
         id: custom-env-create
         run: |
-          echo "Creating environment using custom channel only..."
+          echo "Creating environment using ONLY custom channel..."
           conda info
           echo ""
           echo "Active channels:"
           conda config --show channels
           echo ""
-          echo "Testing custom channel availability..."
-          conda search -c danyeaw --json > custom_search.json 2>$null || echo "No packages found in custom channel yet"
           
-          echo "Attempting environment creation..."
-          conda env create -f environment.yml -n custom-channel-test
+          echo "Testing custom channel availability..."
+          conda search -c danyeaw --override-channels > custom_search.txt 2>&1 || echo "Search completed with warnings"
+          
+          echo "Attempting environment creation with --override-channels..."
+          conda env create -f environment.yml -n custom-channel-test -c danyeaw --override-channels --verbose
 
       - name: Count Available Packages
         run: |
-          echo "Searching available packages..."
-          $search_output = conda search 2>&1 | Where-Object { 
+          echo "Searching available packages in danyeaw channel only..."
+          
+          # Force search to ONLY use the specified channel
+          $search_output = conda search -c danyeaw --override-channels 2>&1 | Where-Object { 
             $_ -match "^\w+\s+" -and 
             $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|$)" 
           }
           $package_count = ($search_output | Measure-Object).Count
           
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Available packages: $package_count"
+          echo "Available packages in danyeaw channel: $package_count"
           
+          # Debug: show first few package names
           echo "Sample packages found:"
-          $search_output | Select-Object -First 5 | ForEach-Object { echo "  $_" }
+          $search_output | Select-Object -First 10 | ForEach-Object { echo "  $_" }
+          
+          # Verify this matches expected count
+          if ($package_count -eq 50) {
+            echo "✅ Package count matches expected (50 packages)"
+          } else {
+            echo "⚠️ Package count ($package_count) doesn't match expected (50)"
+            echo "This might indicate search issues or channel configuration problems"
+          }
 
       - name: Calculate Total Time
         run: |
@@ -165,14 +241,14 @@ jobs:
       - name: Report Results
         run: |
           echo "=== CUSTOM CHANNEL ONLY RESULTS ==="
-          echo "Channels: danyeaw"
+          echo "Channels: danyeaw (strict mode)"
           echo "Total Time: $env:TOTAL_TIME seconds"
           echo "Available Packages: $env:PACKAGES_FOUND"
           echo "Environment Creation: ${{ steps.custom-env-create.outcome }}"
           if ('${{ steps.custom-env-create.outcome }}' -eq 'success') {
             echo "✅ Successfully created environment from custom channel only"
           } else {
-            echo "❌ Could not create environment (packages may not be uploaded yet)"
+            echo "❌ Could not create environment (packages may not be available in custom channel)"
           }
 
       - name: Cleanup
@@ -182,6 +258,7 @@ jobs:
   defaults-only:
     name: Defaults Only (defaults channel)
     runs-on: windows-latest
+    timeout-minutes: 25
     outputs:
       total-time: ${{ steps.defaults-results.outputs.total-time }}
       packages-found: ${{ steps.defaults-results.outputs.packages-found }}
@@ -205,7 +282,16 @@ jobs:
           channels: defaults
           auto-activate-base: false
 
+      - name: Debug Environment
+        run: |
+          echo "=== Environment Debug Info ==="
+          echo "Conda version: $(conda --version)"
+          echo "Available channels:"
+          conda config --show channels
+          echo "=========================="
+
       - name: Create Environment with Defaults Only
+        timeout-minutes: 15
         run: |
           echo "Creating environment using defaults channel only..."
           conda info
@@ -213,11 +299,12 @@ jobs:
           echo "Active channels:"
           conda config --show channels
           echo ""
-          conda env create -f environment.yml -n defaults-only-test
+          conda env create -f environment.yml -n defaults-only-test --verbose
 
       - name: Count Available Packages
         run: |
-          echo "Searching available packages..."
+          echo "Searching available packages in defaults channel..."
+          # FIXED: Use text parsing instead of broken JSON parsing
           $search_output = conda search 2>&1 | Where-Object { 
             $_ -match "^\w+\s+" -and 
             $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|$)" 
@@ -225,8 +312,9 @@ jobs:
           $package_count = ($search_output | Measure-Object).Count
           
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Available packages: $package_count"
+          echo "Available packages in defaults channel: $package_count"
           
+          # Debug: show first few package names
           echo "Sample packages found:"
           $search_output | Select-Object -First 5 | ForEach-Object { echo "  $_" }
 
@@ -278,14 +366,58 @@ jobs:
           echo "| danyeaw custom (Smallest) | ${{ needs.custom-channel-only.outputs.total-time }}s | ${{ needs.custom-channel-only.outputs.packages-found }} | $custom_success |"
           echo ""
           
-          # Performance analysis
-          $default_time = if ('${{ needs.default-channels.outputs.total-time }}' -ne '') { [double]'${{ needs.default-channels.outputs.total-time }}' } else { 0 }
-          $defaults_only_time = if ('${{ needs.defaults-only.outputs.total-time }}' -ne '') { [double]'${{ needs.defaults-only.outputs.total-time }}' } else { 0 }
-          $custom_time = if ('${{ needs.custom-channel-only.outputs.total-time }}' -ne '') { [double]'${{ needs.custom-channel-only.outputs.total-time }}' } else { 0 }
+          # Performance analysis with better error handling
+          $default_time = 0
+          $defaults_only_time = 0  
+          $custom_time = 0
+          $default_packages = 0
+          $defaults_only_packages = 0
+          $custom_packages = 0
           
-          $default_packages = if ('${{ needs.default-channels.outputs.packages-found }}' -ne '') { [int]'${{ needs.default-channels.outputs.packages-found }}' } else { 0 }
-          $defaults_only_packages = if ('${{ needs.defaults-only.outputs.packages-found }}' -ne '') { [int]'${{ needs.defaults-only.outputs.packages-found }}' } else { 0 }
-          $custom_packages = if ('${{ needs.custom-channel-only.outputs.packages-found }}' -ne '') { [int]'${{ needs.custom-channel-only.outputs.packages-found }}' } else { 0 }
+          # Safely parse numeric values
+          try {
+            if ('${{ needs.default-channels.outputs.total-time }}' -match '^\d+\.?\d*$') {
+              $default_time = [double]'${{ needs.default-channels.outputs.total-time }}'
+            }
+          } catch { echo "Could not parse default-channels time" }
+          
+          try {
+            if ('${{ needs.defaults-only.outputs.total-time }}' -match '^\d+\.?\d*$') {
+              $defaults_only_time = [double]'${{ needs.defaults-only.outputs.total-time }}'
+            }
+          } catch { echo "Could not parse defaults-only time" }
+          
+          try {
+            if ('${{ needs.custom-channel-only.outputs.total-time }}' -match '^\d+\.?\d*$') {
+              $custom_time = [double]'${{ needs.custom-channel-only.outputs.total-time }}'
+            }
+          } catch { echo "Could not parse custom channel time" }
+          
+          # Safely parse package counts
+          try {
+            if ('${{ needs.default-channels.outputs.packages-found }}' -match '^\d+$') {
+              $default_packages = [int]'${{ needs.default-channels.outputs.packages-found }}'
+            }
+          } catch { echo "Could not parse default-channels package count" }
+          
+          try {
+            if ('${{ needs.defaults-only.outputs.packages-found }}' -match '^\d+$') {
+              $defaults_only_packages = [int]'${{ needs.defaults-only.outputs.packages-found }}'
+            }
+          } catch { echo "Could not parse defaults-only package count" }
+          
+          try {
+            if ('${{ needs.custom-channel-only.outputs.packages-found }}' -match '^\d+$') {
+              $custom_packages = [int]'${{ needs.custom-channel-only.outputs.packages-found }}'
+            }
+          } catch { echo "Could not parse custom channel package count" }
+          
+          # Display parsed values for debugging
+          echo "Parsed values:"
+          echo "- Default time: $default_time, packages: $default_packages"
+          echo "- Defaults-only time: $defaults_only_time, packages: $defaults_only_packages" 
+          echo "- Custom time: $custom_time, packages: $custom_packages"
+          echo ""
           
           # Performance analysis
           echo "## Channel Size vs Performance Analysis"
@@ -346,31 +478,22 @@ jobs:
           echo ""
           echo "### Channel Size Theory Validation"
           echo "- **Hypothesis**: Smaller channels should resolve dependencies faster"
-          echo "- **Package counts**: conda-forge+defaults (~500k+) > defaults (~8k) > custom (~0-100)"
+          echo "- **Package counts**: conda-forge+defaults (~500k+) > defaults (~8k) > custom (~50)"
           echo "- **Resolution time**: Should decrease as package count decreases"
           echo ""
           
           if ($custom_packages -eq 0) {
             echo "### Custom Channel Status"
-            echo "- ❌ **No packages found** in anaconda.org/danyeaw channel"
-            echo "- 📦 **Upload needed packages** using anaconda-client"
-            echo "- 🔧 **Required packages** from environment.yml:"
-            echo "  - Upload the exact packages your environment.yml specifies"
-            echo "  - Include all dependencies or use conda-build to create them"
+            echo "- ❌ **No packages found** in anaconda.org/danyeaw channel with strict isolation"
+            echo "- 📦 **Channel isolation working** - no fallback to other channels"
+            echo "- 🔧 **Required packages** from environment.yml missing from custom channel"
             echo "- 📋 **Verify channel** at: https://anaconda.org/danyeaw"
             echo ""
-            echo "### Upload Instructions"
-            echo '```bash'
-            echo '# Login to anaconda.org'
-            echo 'anaconda login'
-            echo ''
-            echo '# Upload packages (replace with your actual package files)'
-            echo 'anaconda upload /path/to/packages/*.tar.bz2'
-            echo ''
-            echo '# Or build and upload from conda recipes'
-            echo 'conda build recipe-directory'
-            echo 'anaconda upload /path/to/conda-bld/**/*.tar.bz2'
-            echo '```'
+          } elseif ($custom_packages -lt 50) {
+            echo "### Custom Channel Status"
+            echo "- ⚠️ **Fewer packages found ($custom_packages) than expected (50)**"
+            echo "- 🔍 **Channel isolation** may be working, but search filtering could be affecting results"
+            echo "- 📦 **Verify actual package count** at: https://anaconda.org/danyeaw"
             echo ""
           } else {
             echo "### Custom Channel Performance Results"
@@ -399,9 +522,14 @@ jobs:
             echo "- 📦 **Maintain minimal custom channel** with only essential packages"
             echo "- 🔄 **Use custom channel as primary** with fallback channels if needed"
           } else {
-            echo "- 📦 **Populate custom channel** to test small channel hypothesis"
-            echo "- 🧪 **Re-run test** after uploading packages to validate theory"
+            echo "- 📦 **Ensure environment.yml dependencies exist in custom channel**"
+            echo "- 🧪 **Re-run test** after ensuring all required packages are available"
           }
           
           echo "- 📊 **Monitor channel size vs performance trade-offs** regularly"
           echo "- 🎛️ **Choose channel strategy** based on speed vs package availability needs"
+          echo ""
+          echo "### Channel Isolation Verification"
+          echo "- ✅ **Strict channel mode implemented** for custom channel testing"
+          echo "- 🔒 **--override-channels flag** prevents fallback to other channels"
+          echo "- 📈 **True performance comparison** now possible between channel sizes"
