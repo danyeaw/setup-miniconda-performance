@@ -98,12 +98,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        run: echo "today=$(Get-Date -UFormat '+%Y%m%d')" >> $env:GITHUB_OUTPUT
-        shell: pwsh
-
-      - name: Setup Miniforge (Initial)
+      - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
@@ -112,24 +107,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CONDA }}/envs/test-env
-          key: conda-env-windows-${{ matrix.cache-run }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
+          key: conda-env-windows-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}
           restore-keys: |
-            conda-env-windows-first-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
+            conda-env-windows-${{ hashFiles('environment.yml') }}-
         id: cache
 
-      - name: Time Environment Update (Cache Miss/Hit)
-        env:
-          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      # Add a small delay for second run to ensure first run can populate cache
+      - name: Wait for cache population
+        if: matrix.cache-run == 'second'
         run: |
-          echo "Cache hit: $env:CACHE_HIT"
+          echo "Waiting 30 seconds to allow first run to populate cache..."
+          Start-Sleep -Seconds 30
+
+      - name: Time Environment Update (Cache Miss/Hit)
+        run: |
+          echo "=== ${{ matrix.cache-run }} RUN ==="
+          echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
           $start_time = [System.DateTime]::Now.Ticks
           
-          if ($env:CACHE_HIT -ne "true") {
+          if ("${{ steps.cache.outputs.cache-hit }}" -ne "true") {
             echo "Cache miss - creating environment from scratch"
             conda env create -f environment.yml -n test-env
           } else {
             echo "Cache hit - validating cached environment"
-            # Validate the cached environment works by activating it and running a simple command
             conda activate test-env
             conda list | Select-Object -First 10
             echo "Cached environment validated successfully"
@@ -139,7 +139,7 @@ jobs:
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
           echo "ENV_CACHE_TIME=$formatted_duration" >> $env:GITHUB_ENV
-          echo "CACHE_HIT_STATUS=$env:CACHE_HIT" >> $env:GITHUB_ENV
+          echo "CACHE_HIT_STATUS=${{ steps.cache.outputs.cache-hit }}" >> $env:GITHUB_ENV
 
       - name: Set First Run Outputs
         if: matrix.cache-run == 'first'
@@ -162,6 +162,10 @@ jobs:
           echo "Cache Run: ${{ matrix.cache-run }}"
           echo "Cache Hit: $env:CACHE_HIT_STATUS"
           echo "Setup Time: $env:ENV_CACHE_TIME seconds"
+
+      - name: Cleanup
+        run: conda env remove -n test-env -y
+        continue-on-error: true
 
   drive-optimization:
     name: Drive Optimization (${{ matrix.drive }})
