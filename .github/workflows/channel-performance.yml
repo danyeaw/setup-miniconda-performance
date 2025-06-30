@@ -42,9 +42,15 @@ jobs:
 
       - name: Count Packages
         run: |
-          $search_output = conda search --json 2>$null
-          $json_content = $search_output | ConvertFrom-Json -ErrorAction SilentlyContinue
-          $package_count = if ($json_content) { ($json_content | Get-Member -Type NoteProperty).Count } else { 0 }
+          $package_count = 0
+          try {
+            $search_result = conda search 2>&1
+            if ($LASTEXITCODE -eq 0) {
+              $package_count = ($search_result | Where-Object { $_ -match "^\w+\s+" } | Measure-Object).Count
+            }
+          } catch {
+            $package_count = 0
+          }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
 
       - name: Calculate Results
@@ -93,9 +99,15 @@ jobs:
 
       - name: Count Packages
         run: |
-          $search_output = conda search --json -c defaults --override-channels 2>$null
-          $json_content = $search_output | ConvertFrom-Json -ErrorAction SilentlyContinue
-          $package_count = if ($json_content) { ($json_content | Get-Member -Type NoteProperty).Count } else { 0 }
+          $package_count = 0
+          try {
+            $search_result = conda search -c defaults --override-channels 2>&1
+            if ($LASTEXITCODE -eq 0) {
+              $package_count = ($search_result | Where-Object { $_ -match "^\w+\s+" } | Measure-Object).Count
+            }
+          } catch {
+            $package_count = 0
+          }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
 
       - name: Calculate Results
@@ -138,6 +150,16 @@ jobs:
           miniconda-version: "latest"
           auto-activate-base: false
 
+      - name: Configure Custom Channel Only
+        run: |
+          echo "Configuring strict custom channel mode..."
+          conda config --remove-key channels 2>$null || echo "No channels to remove"
+          conda config --add channels danyeaw
+          conda config --set channel_priority strict
+          conda config --set restore_free_channel false
+          echo "Final channel config:"
+          conda config --show channels
+
       - name: Create Environment
         continue-on-error: true
         id: env-create
@@ -146,9 +168,15 @@ jobs:
 
       - name: Count Packages
         run: |
-          $search_output = conda search --json -c danyeaw --override-channels 2>$null
-          $json_content = $search_output | ConvertFrom-Json -ErrorAction SilentlyContinue
-          $package_count = if ($json_content) { ($json_content | Get-Member -Type NoteProperty).Count } else { 0 }
+          $package_count = 0
+          try {
+            $search_result = conda search -c danyeaw --override-channels 2>&1
+            if ($LASTEXITCODE -eq 0) {
+              $package_count = ($search_result | Where-Object { $_ -match "^\w+\s+" } | Measure-Object).Count
+            }
+          } catch {
+            $package_count = 0
+          }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
 
       - name: Calculate Results
