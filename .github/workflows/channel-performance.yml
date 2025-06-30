@@ -154,7 +154,7 @@ jobs:
         run: |
           echo "Configuring strict custom channel mode..."
           conda config --remove-key channels 2>$null || echo "No channels to remove"
-          conda config --add channels danyeaw
+          conda config --add channels danyeaw/label/danyeaw
           conda config --set channel_priority strict
           conda config --set restore_free_channel false
           echo "Final channel config:"
@@ -170,7 +170,7 @@ jobs:
         run: |
           $package_count = 0
           try {
-            $search_result = conda search -c danyeaw --override-channels 2>&1
+            $search_result = conda search -c danyeaw/label/danyeaw --override-channels 2>&1
             if ($LASTEXITCODE -eq 0) {
               $package_count = ($search_result | Where-Object { $_ -match "^\w+\s+" } | Measure-Object).Count
             }
