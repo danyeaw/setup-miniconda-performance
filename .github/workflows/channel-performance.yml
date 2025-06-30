@@ -32,9 +32,7 @@ jobs:
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: "latest"
           channels: conda-forge,defaults
-          auto-activate-base: false
 
       - name: Create Environment
         run: |
@@ -89,9 +87,7 @@ jobs:
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: "latest"
           channels: defaults
-          auto-activate-base: false
 
       - name: Create Environment
         run: |
@@ -147,32 +143,8 @@ jobs:
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: "latest"
-          auto-activate-base: false
-
-      - name: Configure Custom Channel Only
-        run: |
-          echo "Configuring strict custom channel mode..."
-          conda config --remove-key channels 2>$null || echo "No channels to remove"
-          conda config --add channels danyeaw/label/danyeaw
-          conda config --set channel_priority strict
-          conda config --set restore_free_channel false
-          echo "Final channel config:"
-          conda config --show channels
-
-      - name: Clean Environment
-        run: |
-          conda clean --all -y
-          $packagesToRemove = @('requests', 'pytest', 'numpy', 'pandas', 'certifi', 'charset-normalizer', 'idna', 'urllib3')
-          
-          foreach ($pkg in $packagesToRemove) {
-            try {
-              python -m pip uninstall $pkg -y
-              Write-Host "Removed: $pkg"
-            } catch {
-              Write-Host "Package $pkg not found or already removed"
-            }
-          }
+          channel-priority: strict
+          channels: danyeaw/label/danyeaw
 
       - name: Create Environment
         id: env-create
