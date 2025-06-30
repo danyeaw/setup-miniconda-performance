@@ -38,6 +38,13 @@ jobs:
         run: |
           conda env create -f environment.yml -n test-env
 
+      - name: Stop Timing
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "PERFORMANCE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
       - name: Count Packages
         run: |
           $package_count = 0
@@ -51,20 +58,12 @@ jobs:
           }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
 
-      - name: Calculate Results
+      - name: Output Results
         id: results
         run: |
-          $end_time = [System.DateTime]::Now.Ticks
-          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
-          $formatted_duration = [math]::Round($duration, 1)
-          
-          echo "Full channels: ${formatted_duration}s, ${env:PACKAGES_FOUND} packages"
-          echo "total-time=$formatted_duration" >> $env:GITHUB_OUTPUT
+          echo "Full channels: ${env:PERFORMANCE_TIME}s, ${env:PACKAGES_FOUND} packages"
+          echo "total-time=${env:PERFORMANCE_TIME}" >> $env:GITHUB_OUTPUT
           echo "packages-found=${env:PACKAGES_FOUND}" >> $env:GITHUB_OUTPUT
-
-      - name: Cleanup
-        if: always()
-        run: conda env remove -n test-env -y
 
   defaults-only:
     name: Defaults Only Test
@@ -93,6 +92,13 @@ jobs:
         run: |
           conda env create -f environment-defaults.yml -n test-env
 
+      - name: Stop Timing
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "PERFORMANCE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
       - name: Count Packages
         run: |
           $package_count = 0
@@ -106,20 +112,12 @@ jobs:
           }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
 
-      - name: Calculate Results
+      - name: Output Results
         id: results
         run: |
-          $end_time = [System.DateTime]::Now.Ticks
-          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
-          $formatted_duration = [math]::Round($duration, 1)
-          
-          echo "Defaults only: ${formatted_duration}s, ${env:PACKAGES_FOUND} packages"
-          echo "total-time=$formatted_duration" >> $env:GITHUB_OUTPUT
+          echo "Defaults only: ${env:PERFORMANCE_TIME}s, ${env:PACKAGES_FOUND} packages"
+          echo "total-time=${env:PERFORMANCE_TIME}" >> $env:GITHUB_OUTPUT
           echo "packages-found=${env:PACKAGES_FOUND}" >> $env:GITHUB_OUTPUT
-
-      - name: Cleanup
-        if: always()
-        run: conda env remove -n test-env -y
 
   custom-channel:
     name: Custom Channel Test
@@ -145,12 +143,18 @@ jobs:
         with:
           channel-priority: strict
           channels: danyeaw/label/danyeaw
-          conda-remove-defaults: "true"
 
       - name: Create Environment
         id: env-create
         run: |
           conda env create -f environment-small-channel.yml -n test-env
+
+      - name: Stop Timing
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "PERFORMANCE_TIME=$formatted_duration" >> $env:GITHUB_ENV
 
       - name: Count Packages
         run: |
@@ -165,22 +169,15 @@ jobs:
           }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
 
-      - name: Calculate Results
+      - name: Output Results
         id: results
         run: |
-          $end_time = [System.DateTime]::Now.Ticks
-          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
-          $formatted_duration = [math]::Round($duration, 1)
           $success = if ('${{ steps.env-create.outcome }}' -eq 'success') { 'true' } else { 'false' }
           
-          echo "Custom channel: ${formatted_duration}s, ${env:PACKAGES_FOUND} packages, Success: $success"
-          echo "total-time=$formatted_duration" >> $env:GITHUB_OUTPUT
+          echo "Custom channel: ${env:PERFORMANCE_TIME}s, ${env:PACKAGES_FOUND} packages, Success: $success"
+          echo "total-time=${env:PERFORMANCE_TIME}" >> $env:GITHUB_OUTPUT
           echo "packages-found=${env:PACKAGES_FOUND}" >> $env:GITHUB_OUTPUT
           echo "success=$success" >> $env:GITHUB_OUTPUT
-
-      - name: Cleanup
-        if: always()
-        run: conda env remove -n test-env -y
 
   results:
     name: Compare Results
