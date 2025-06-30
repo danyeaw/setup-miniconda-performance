@@ -92,26 +92,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Miniforge
+      - name: Get Date
+        id: get-date
+        run: echo "today=$(Get-Date -UFormat '+%Y%m%d')" >> $env:GITHUB_OUTPUT
+
+      - name: Setup Miniconda (with environment)
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-version: latest
+          activate-environment: test
 
-      - name: Cache Conda environment
+      - name: Cache Conda env
         uses: actions/cache@v4
         with:
-          path: ${{ env.CONDA }}/envs/test-env
-          key: conda-env-test-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
+          path: ${{ env.CONDA }}/envs
+          key: conda-${{ runner.os }}-${{ runner.arch }}-${{ steps.get-date.outputs.today }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
         id: cache
 
-      - name: Create Environment and Time It
+      - name: Update environment and time it
         id: timing
         run: |
           echo "=== FIRST RUN - SHOULD BE CACHE MISS ==="
           echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
           
           $start_time = [System.DateTime]::Now.Ticks
-          conda env create -f environment.yml -n test-env
+          conda env update -n test -f environment.yml
           $end_time = [System.DateTime]::Now.Ticks
           
           $duration = ($end_time - $start_time) / 10000000
@@ -120,9 +124,10 @@ jobs:
           echo "env-time=$formatted_duration" >> $env:GITHUB_OUTPUT
           echo "First run completed in: $formatted_duration seconds"
 
-      - name: Cleanup
-        run: conda env remove -n test-env -y
-        continue-on-error: true
+      - name: Validate environment
+        run: |
+          conda activate test
+          conda list | Select-Object -First 10
 
   environment-caching-second:
     name: Environment Cache - Second Run (Cache Hit)
@@ -139,19 +144,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Miniforge
+      - name: Get Date
+        id: get-date
+        run: echo "today=$(Get-Date -UFormat '+%Y%m%d')" >> $env:GITHUB_OUTPUT
+
+      - name: Setup Miniconda (with environment)
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-version: latest
+          miniconda-version: latest
+          activate-environment: test-env
 
-      - name: Cache Conda environment
+      - name: Cache Conda env
         uses: actions/cache@v4
         with:
-          path: ${{ env.CONDA }}/envs/test-env
-          key: conda-env-test-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
+          path: ${{ env.CONDA }}/envs
+          key: conda-${{ runner.os }}-${{ runner.arch }}-${{ steps.get-date.outputs.today }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
         id: cache
 
-      - name: Use Cached Environment and Time It
+      - name: Update environment and time it
         id: timing
         run: |
           echo "=== SECOND RUN - SHOULD BE CACHE HIT ==="
@@ -160,13 +170,13 @@ jobs:
           $start_time = [System.DateTime]::Now.Ticks
           
           if ("${{ steps.cache.outputs.cache-hit }}" -ne "true") {
-            echo "Unexpected cache miss - creating environment from scratch"
-            conda env create -f environment.yml -n test-env
+            echo "Unexpected cache miss - updating environment"
+            conda env update -n test -f environment.yml
           } else {
-            echo "Cache hit - validating cached environment"
-            conda activate test-env
-            conda list | Select-Object -First 10
-            echo "Cached environment validated successfully"
+            echo "Cache hit - environment should already exist and be ready"
+            # Just verify the environment is working
+            conda activate test
+            echo "Environment validated from cache"
           }
           
           $end_time = [System.DateTime]::Now.Ticks
@@ -176,9 +186,10 @@ jobs:
           echo "env-time=$formatted_duration" >> $env:GITHUB_OUTPUT
           echo "Second run completed in: $formatted_duration seconds"
 
-      - name: Cleanup
-        run: conda env remove -n test-env -y
-        continue-on-error: true
+      - name: Validate environment
+        run: |
+          conda activate test
+          conda list | Select-Object -First 10
 
   environment-caching:
     name: Environment Cache Summary
@@ -204,7 +215,7 @@ jobs:
           
           if [ "$SECOND_CACHE_HIT" = "true" ] && [ -n "$FIRST_TIME" ] && [ -n "$SECOND_TIME" ]; then
             IMPROVEMENT=$(echo "scale=1; ($FIRST_TIME - $SECOND_TIME) / $FIRST_TIME * 100" | bc -l)
-            echo "Performance improvement: ${IMPROVEMENT}% faster with cache"
+            echo "Performance improvement: ${IMPROVEMENT}% faster with environment caching"
           fi
 
   drive-optimization:
