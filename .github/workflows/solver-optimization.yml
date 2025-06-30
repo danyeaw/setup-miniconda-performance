@@ -1,95 +1,149 @@
 name: Solver Optimization
+
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
     paths: [ '.github/workflows/solver-optimization.yml' ]
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
-  solver-performance:
-    name: Solver Performance (${{ matrix.solver }})
+  default-solver:
+    name: Default Solver Performance
     runs-on: windows-latest
+    timeout-minutes: 30
     outputs:
-      default-solver-time: ${{ steps.default-results.outputs.solver-time }}
-      mamba-solver-time: ${{ steps.mamba-results.outputs.solver-time }}
-      mamba-v1-solver-time: ${{ steps.mamba-v1-results.outputs.solver-time }}
+      solver-time: ${{ steps.results.outputs.solver-time }}
     defaults:
       run:
         shell: pwsh
-    strategy:
-      fail-fast: false
-      matrix:
-        solver: [default, mamba, mamba-v1]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Miniconda - Default Solver
-        if: matrix.solver == 'default'
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniconda-version: "latest"
+
+      - name: Time Solver Performance
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          conda env create -f environment.yml -n solver-perf-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "SOLVER_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Output Results
+        id: results
+        run: |
+          echo "Default Solver: ${env:SOLVER_TIME}s"
+          echo "solver-time=${env:SOLVER_TIME}" >> $env:GITHUB_OUTPUT
+
+      - name: Cleanup
+        run: |
+          conda env remove -n solver-perf-test -y
+
+  mamba-solver:
+    name: Mamba Solver Performance
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      solver-time: ${{ steps.results.outputs.solver-time }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Miniconda - Mamba
-        if: matrix.solver == 'mamba'
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniconda-version: "latest"
           auto-update-conda: true
           mamba-version: "*"
           channels: conda-forge,defaults
+
+      - name: Time Solver Performance
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          mamba env create -f environment.yml -n solver-perf-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "SOLVER_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Output Results
+        id: results
+        run: |
+          echo "Mamba Solver: ${env:SOLVER_TIME}s"
+          echo "solver-time=${env:SOLVER_TIME}" >> $env:GITHUB_OUTPUT
+
+      - name: Cleanup
+        run: |
+          mamba env remove -n solver-perf-test -y
+
+  mamba-v1-solver:
+    name: Mamba v1 Solver Performance
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      solver-time: ${{ steps.results.outputs.solver-time }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Miniforge - Mamba v1
-        if: matrix.solver == 'mamba-v1'
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: "24.11.3-2"  # For Mamba 1.5.12
           auto-update-conda: false
           use-mamba: true
           channels: conda-forge,defaults
+
       - name: Time Solver Performance
         run: |
           $start_time = [System.DateTime]::Now.Ticks
-          if ("${{ matrix.solver }}" -eq "mamba" -or "${{ matrix.solver }}" -eq "mamba-v1") {
-            mamba env create -f environment.yml -n solver-perf-test
-          } else {
-            conda env create -f environment.yml -n solver-perf-test
-          }
+          mamba env create -f environment.yml -n solver-perf-test
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
           echo "SOLVER_TIME=$formatted_duration" >> $env:GITHUB_ENV
-      - name: Set Default Solver Outputs
-        if: matrix.solver == 'default'
-        id: default-results
+
+      - name: Output Results
+        id: results
         run: |
-          echo "solver-time=$env:SOLVER_TIME" >> $env:GITHUB_OUTPUT
-      - name: Set Mamba Solver Outputs
-        if: matrix.solver == 'mamba'
-        id: mamba-results
-        run: |
-          echo "solver-time=$env:SOLVER_TIME" >> $env:GITHUB_OUTPUT
-      - name: Set Mamba v1 Solver Outputs
-        if: matrix.solver == 'mamba-v1'
-        id: mamba-v1-results
-        run: |
-          echo "solver-time=$env:SOLVER_TIME" >> $env:GITHUB_OUTPUT
-      - name: Report Solver Optimization Results
-        run: |
-          echo "=== SOLVER OPTIMIZATION RESULTS ==="
-          echo "Solver: ${{ matrix.solver }}"
-          echo "Installation Time: $env:SOLVER_TIME seconds"
-          echo "Compare with 'default' results to see if optimization helps"
+          echo "Mamba v1 Solver: ${env:SOLVER_TIME}s"
+          echo "solver-time=${env:SOLVER_TIME}" >> $env:GITHUB_OUTPUT
+
       - name: Cleanup
         run: |
-          if ("${{ matrix.solver }}" -eq "mamba" -or "${{ matrix.solver }}" -eq "mamba-v1") {
-            mamba env remove -n solver-perf-test -y
-          } else {
-            conda env remove -n solver-perf-test -y
-          }
+          mamba env remove -n solver-perf-test -y
 
-      - name: Output Raw Results for Logging
+  results:
+    name: Compare Results
+    runs-on: windows-latest
+    needs: [default-solver, mamba-solver, mamba-v1-solver]
+    if: always()
+    steps:
+      - name: Generate Report
+        shell: pwsh
         run: |
-          echo "=== RAW PERFORMANCE RESULTS ==="
-          echo "Default Solver: ${{ needs.solver-performance.outputs.default-solver-time }}s"
-          echo "Mamba Solver: ${{ needs.solver-performance.outputs.mamba-solver-time }}s"  
-          echo "Mamba v1 Solver: ${{ needs.solver-performance.outputs.mamba-v1-solver-time }}s"
+          Write-Host ""
+          Write-Host "Solver Optimization Results"
+          Write-Host "=========================="
+          Write-Host ""
+          Write-Host "| Solver      | Time (s) |"
+          Write-Host "|-------------|----------|"
+          Write-Host "| Default     | ${{ needs.default-solver.outputs.solver-time }}      |"
+          Write-Host "| Mamba       | ${{ needs.mamba-solver.outputs.solver-time }}      |"
+          Write-Host "| Mamba v1    | ${{ needs.mamba-v1-solver.outputs.solver-time }}      |"
+          Write-Host ""
