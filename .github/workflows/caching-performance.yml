@@ -124,88 +124,88 @@ jobs:
         run: conda env remove -n test-env -y
         continue-on-error: true
 
-    environment-caching-second:
-      name: Environment Cache - Second Run (Cache Hit)
-      runs-on: windows-latest
-      needs: environment-caching-first
-      outputs:
-        second-run-time: ${{ steps.timing.outputs.env-time }}
-        cache-hit: ${{ steps.cache.outputs.cache-hit }}
-      defaults:
-        run:
-          shell: pwsh
+  environment-caching-second:
+    name: Environment Cache - Second Run (Cache Hit)
+    runs-on: windows-latest
+    needs: environment-caching-first
+    outputs:
+      second-run-time: ${{ steps.timing.outputs.env-time }}
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}
+    defaults:
+      run:
+        shell: pwsh
 
-      steps:
-        - name: Checkout
-          uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-        - name: Setup Miniforge
-          uses: conda-incubator/setup-miniconda@v3
-          with:
-            miniforge-version: latest
+      - name: Setup Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
 
-        - name: Cache Conda environment
-          uses: actions/cache@v4
-          with:
-            path: ${{ env.CONDA }}/envs/test-env
-            key: conda-env-test-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
-          id: cache
+      - name: Cache Conda environment
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CONDA }}/envs/test-env
+          key: conda-env-test-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
+        id: cache
 
-        - name: Use Cached Environment and Time It
-          id: timing
-          run: |
-            echo "=== SECOND RUN - SHOULD BE CACHE HIT ==="
-            echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
-            
-            $start_time = [System.DateTime]::Now.Ticks
-            
-            if ("${{ steps.cache.outputs.cache-hit }}" -ne "true") {
-              echo "Unexpected cache miss - creating environment from scratch"
-              conda env create -f environment.yml -n test-env
-            } else {
-              echo "Cache hit - validating cached environment"
-              conda activate test-env
-              conda list | Select-Object -First 10
-              echo "Cached environment validated successfully"
-            }
-            
-            $end_time = [System.DateTime]::Now.Ticks
-            $duration = ($end_time - $start_time) / 10000000
-            $formatted_duration = [math]::Round($duration, 1)
-            
-            echo "env-time=$formatted_duration" >> $env:GITHUB_OUTPUT
-            echo "Second run completed in: $formatted_duration seconds"
+      - name: Use Cached Environment and Time It
+        id: timing
+        run: |
+          echo "=== SECOND RUN - SHOULD BE CACHE HIT ==="
+          echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
+          
+          $start_time = [System.DateTime]::Now.Ticks
+          
+          if ("${{ steps.cache.outputs.cache-hit }}" -ne "true") {
+            echo "Unexpected cache miss - creating environment from scratch"
+            conda env create -f environment.yml -n test-env
+          } else {
+            echo "Cache hit - validating cached environment"
+            conda activate test-env
+            conda list | Select-Object -First 10
+            echo "Cached environment validated successfully"
+          }
+          
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          
+          echo "env-time=$formatted_duration" >> $env:GITHUB_OUTPUT
+          echo "Second run completed in: $formatted_duration seconds"
 
-        - name: Cleanup
-          run: conda env remove -n test-env -y
-          continue-on-error: true
+      - name: Cleanup
+        run: conda env remove -n test-env -y
+        continue-on-error: true
 
-    environment-caching:
-      name: Environment Cache Summary
-      runs-on: ubuntu-latest
-      needs: [environment-caching-first, environment-caching-second]
-      if: always()
-      outputs:
-        first-run-time: ${{ needs.environment-caching-first.outputs.first-run-time }}
-        second-run-time: ${{ needs.environment-caching-second.outputs.second-run-time }}
-        first-cache-hit: ${{ needs.environment-caching-first.outputs.cache-hit }}
-        second-cache-hit: ${{ needs.environment-caching-second.outputs.cache-hit }}
-      steps:
-        - name: Environment Cache Results
-          run: |
-            echo "=== ENVIRONMENT CACHE PERFORMANCE SUMMARY ==="
-            echo "First Run: ${{ needs.environment-caching-first.outputs.first-run-time }}s (Cache Hit: ${{ needs.environment-caching-first.outputs.cache-hit }})"
-            echo "Second Run: ${{ needs.environment-caching-second.outputs.second-run-time }}s (Cache Hit: ${{ needs.environment-caching-second.outputs.cache-hit }})"
-            
-            # Calculate improvement
-            FIRST_TIME="${{ needs.environment-caching-first.outputs.first-run-time }}"
-            SECOND_TIME="${{ needs.environment-caching-second.outputs.second-run-time }}"
-            SECOND_CACHE_HIT="${{ needs.environment-caching-second.outputs.cache-hit }}"
-            
-            if [ "$SECOND_CACHE_HIT" = "true" ] && [ -n "$FIRST_TIME" ] && [ -n "$SECOND_TIME" ]; then
-              IMPROVEMENT=$(echo "scale=1; ($FIRST_TIME - $SECOND_TIME) / $FIRST_TIME * 100" | bc -l)
-              echo "Performance improvement: ${IMPROVEMENT}% faster with cache"
-            fi
+  environment-caching:
+    name: Environment Cache Summary
+    runs-on: ubuntu-latest
+    needs: [environment-caching-first, environment-caching-second]
+    if: always()
+    outputs:
+      first-run-time: ${{ needs.environment-caching-first.outputs.first-run-time }}
+      second-run-time: ${{ needs.environment-caching-second.outputs.second-run-time }}
+      first-cache-hit: ${{ needs.environment-caching-first.outputs.cache-hit }}
+      second-cache-hit: ${{ needs.environment-caching-second.outputs.cache-hit }}
+    steps:
+      - name: Environment Cache Results
+        run: |
+          echo "=== ENVIRONMENT CACHE PERFORMANCE SUMMARY ==="
+          echo "First Run: ${{ needs.environment-caching-first.outputs.first-run-time }}s (Cache Hit: ${{ needs.environment-caching-first.outputs.cache-hit }})"
+          echo "Second Run: ${{ needs.environment-caching-second.outputs.second-run-time }}s (Cache Hit: ${{ needs.environment-caching-second.outputs.cache-hit }})"
+          
+          # Calculate improvement
+          FIRST_TIME="${{ needs.environment-caching-first.outputs.first-run-time }}"
+          SECOND_TIME="${{ needs.environment-caching-second.outputs.second-run-time }}"
+          SECOND_CACHE_HIT="${{ needs.environment-caching-second.outputs.cache-hit }}"
+          
+          if [ "$SECOND_CACHE_HIT" = "true" ] && [ -n "$FIRST_TIME" ] && [ -n "$SECOND_TIME" ]; then
+            IMPROVEMENT=$(echo "scale=1; ($FIRST_TIME - $SECOND_TIME) / $FIRST_TIME * 100" | bc -l)
+            echo "Performance improvement: ${IMPROVEMENT}% faster with cache"
+          fi
 
   drive-optimization:
     name: Drive Optimization (${{ matrix.drive }})
