@@ -145,6 +145,7 @@ jobs:
         with:
           channel-priority: strict
           channels: danyeaw/label/danyeaw
+          conda-remove-defaults: "true"
 
       - name: Create Environment
         id: env-create
