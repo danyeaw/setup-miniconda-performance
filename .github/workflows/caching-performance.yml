@@ -345,33 +345,26 @@ jobs:
           # Environment Caching Results  
           echo "## 🏠 Environment Caching Performance" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Run | Time (seconds) | Cache Status | Performance |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|----------------|--------------|-------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Run | Time (seconds) | Performance |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|----------------|-------------|" >> $GITHUB_STEP_SUMMARY
           
           if [ -n "$FIRST_RUN" ]; then
-            CACHE_STATUS_1=$([ "$FIRST_CACHE_HIT" = "true" ] && echo "🎯 Hit" || echo "❌ Miss")
-            echo "| First Run | ${FIRST_RUN}s | ${CACHE_STATUS_1} | Initial setup |" >> $GITHUB_STEP_SUMMARY
+            echo "| First Run | ${FIRST_RUN}s | Baseline (clean environment) |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| First Run | ❌ Failed | N/A | N/A |" >> $GITHUB_STEP_SUMMARY
+            echo "| First Run | ❌ Failed | N/A |" >> $GITHUB_STEP_SUMMARY
           fi
           
           if [ -n "$SECOND_RUN" ] && [ -n "$FIRST_RUN" ]; then
-            CACHE_STATUS_2=$([ "$SECOND_CACHE_HIT" = "true" ] && echo "🎯 Hit" || echo "❌ Miss")
-            if [ "$SECOND_CACHE_HIT" = "true" ]; then
-              ENV_IMPROVEMENT=$(echo "scale=1; ($FIRST_RUN - $SECOND_RUN) / $FIRST_RUN * 100" | bc -l)
-              if (( $(echo "$SECOND_RUN < $FIRST_RUN" | bc -l) )); then
-                echo "| Second Run | ${SECOND_RUN}s | ${CACHE_STATUS_2} | 🟢 ${ENV_IMPROVEMENT}% faster |" >> $GITHUB_STEP_SUMMARY
-              else
-                echo "| Second Run | ${SECOND_RUN}s | ${CACHE_STATUS_2} | ⚠️ Cache didn't help |" >> $GITHUB_STEP_SUMMARY
-              fi
-            else
-              echo "| Second Run | ${SECOND_RUN}s | ${CACHE_STATUS_2} | ❌ Cache miss |" >> $GITHUB_STEP_SUMMARY
-            fi
-          elif [ -n "$SECOND_RUN" ]; then
-            CACHE_STATUS_2=$([ "$SECOND_CACHE_HIT" = "true" ] && echo "🎯 Hit" || echo "❌ Miss")
-            echo "| Second Run | ${SECOND_RUN}s | ${CACHE_STATUS_2} | ⚠️ No baseline |" >> $GITHUB_STEP_SUMMARY
+            ENV_IMPROVEMENT=$(echo "scale=1; ($FIRST_RUN - $SECOND_RUN) / $FIRST_RUN * 100" | bc -l)
+          if (( $(echo "$SECOND_RUN < $FIRST_RUN" | bc -l) )); then
+            echo "| Second Run | ${SECOND_RUN}s | 🟢 ${ENV_IMPROVEMENT}% faster |" >> $GITHUB_STEP_SUMMARY
           else
-            echo "| Second Run | ❌ Failed | N/A | N/A |" >> $GITHUB_STEP_SUMMARY
+            echo "| Second Run | ${SECOND_RUN}s | ⚠️ Cache didn't help |" >> $GITHUB_STEP_SUMMARY
+          fi
+          elif [ -n "$SECOND_RUN" ]; then
+            echo "| Second Run | ${SECOND_RUN}s | ⚠️ No baseline |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Second Run | ❌ Failed | N/A |" >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -474,8 +467,8 @@ jobs:
           echo "  Without Cache: ${{ needs.package-caching.outputs.without-cache-time }}s"
           echo "  With Cache: ${{ needs.package-caching.outputs.with-cache-time }}s"
           echo "Environment Caching:"
-          echo "  First Run: ${{ needs.environment-caching.outputs.first-run-time }}s (Cache Hit: ${{ needs.environment-caching.outputs.first-cache-hit }})"
-          echo "  Second Run: ${{ needs.environment-caching.outputs.second-run-time }}s (Cache Hit: ${{ needs.environment-caching.outputs.second-cache-hit }})"
+          echo "  First Run: ${{ needs.environment-caching.outputs.first-run-time }}s"
+          echo "  Second Run: ${{ needs.environment-caching.outputs.second-run-time }}s"
           echo "Drive Optimization:"
           echo "  C: Drive: ${{ needs.drive-optimization.outputs.c-drive-time }}s"
           echo "  D: Drive: ${{ needs.drive-optimization.outputs.d-drive-time }}s"
