@@ -122,10 +122,14 @@ jobs:
           echo "Cache hit: ${{ steps.cache.outputs.cache-hit }}"
           $start_time = [System.DateTime]::Now.Ticks
           if ("${{ steps.cache.outputs.cache-hit }}" -ne "true") {
-            echo "Cache miss - creating environment"
+            echo "Cache miss - creating environment from scratch"
             conda env create -f environment.yml -n test-env
           } else {
-            echo "Cache hit - environment should be ready"
+            echo "Cache hit - validating cached environment"
+            # Validate the cached environment works by activating it and running a simple command
+            conda activate test-env
+            conda list | Select-Object -First 10
+            echo "Cached environment validated successfully"
           }
           $end_time = [System.DateTime]::Now.Ticks
           $duration = ($end_time - $start_time) / 10000000
