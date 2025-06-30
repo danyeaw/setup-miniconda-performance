@@ -188,33 +188,15 @@ jobs:
       - name: Generate Report
         shell: pwsh
         run: |
-          echo "# Channel Performance Results" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "| Channel | Time (s) | Packages | Status |" >> $env:GITHUB_STEP_SUMMARY
-          echo "|---------|----------|----------|--------|" >> $env:GITHUB_STEP_SUMMARY
-          echo "| Full Channels | ${{ needs.full-channels.outputs.total-time }} | ${{ needs.full-channels.outputs.packages-found }} | ✅ Success |" >> $env:GITHUB_STEP_SUMMARY
-          echo "| Defaults Only | ${{ needs.defaults-only.outputs.total-time }} | ${{ needs.defaults-only.outputs.packages-found }} | ✅ Success |" >> $env:GITHUB_STEP_SUMMARY
+          Write-Host ""
+          Write-Host "Channel Performance Results"
+          Write-Host "=========================="
+          Write-Host ""
+          Write-Host "| Channel        | Time (s) | Packages | Status    |"
+          Write-Host "|----------------|----------|----------|-----------|"
+          Write-Host "| Full Channels  | ${{ needs.full-channels.outputs.total-time }}      | ${{ needs.full-channels.outputs.packages-found }}     | Success   |"
+          Write-Host "| Defaults Only  | ${{ needs.defaults-only.outputs.total-time }}      | ${{ needs.defaults-only.outputs.packages-found }}     | Success   |"
           
-          $custom_status = if ('${{ needs.custom-channel.outputs.success }}' -eq 'true') { "✅ Success" } else { "❌ Failed" }
-          echo "| Custom Channel | ${{ needs.custom-channel.outputs.total-time }} | ${{ needs.custom-channel.outputs.packages-found }} | $custom_status |" >> $env:GITHUB_STEP_SUMMARY
-          
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "## Analysis" >> $env:GITHUB_STEP_SUMMARY
-          
-          $full_time = [double]'${{ needs.full-channels.outputs.total-time }}'
-          $defaults_time = [double]'${{ needs.defaults-only.outputs.total-time }}'
-          $custom_time = [double]'${{ needs.custom-channel.outputs.total-time }}'
-          
-          if ($defaults_time -lt $full_time) {
-            $speedup = [math]::Round($full_time / $defaults_time, 1)
-            echo "- Defaults-only is ${speedup}x faster than full channels" >> $env:GITHUB_STEP_SUMMARY
-          }
-          
-          if ('${{ needs.custom-channel.outputs.success }}' -eq 'true' -and $custom_time -lt $full_time) {
-            $speedup = [math]::Round($full_time / $custom_time, 1)
-            echo "- Custom channel is ${speedup}x faster than full channels" >> $env:GITHUB_STEP_SUMMARY
-          }
-          
-          if ('${{ needs.custom-channel.outputs.success }}' -ne 'true') {
-            echo "- Custom channel test failed - insufficient packages available" >> $env:GITHUB_STEP_SUMMARY
-          }
+          $custom_status = if ('${{ needs.custom-channel.outputs.success }}' -eq 'true') { "Success" } else { "Failed" }
+          Write-Host "| Custom Channel | ${{ needs.custom-channel.outputs.total-time }}      | ${{ needs.custom-channel.outputs.packages-found }}     | $custom_status    |"
+          Write-Host ""

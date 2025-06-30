@@ -229,17 +229,3 @@ jobs:
               echo "**Update vs Integrated**: Integrated is ${ratio}x faster (saves $([math]::Round(($update_time - $integrated_time), 1))s)"
             }
           }
-          
-          echo ""
-          echo "**Key Insights**:"
-          echo "- All approaches include complete setup-miniconda + environment creation timing"
-          echo "- **Environment Update**: Leverages existing 'test' environment created by setup-miniconda"
-          echo "- **Integrated Setup**: Uses environment-file parameter for one-step creation"
-          echo "- **Separate Creation**: Traditional two-step approach (setup then create)"
-          echo "- **Consistent Timing**: All measurements from start of setup-miniconda to final environment"
-          echo ""
-          echo "**Use Case Recommendations**:"
-          echo "- **Fastest for CI/CD**: Use the approach with lowest total time"
-          echo "- **Simplest Configuration**: Integrated setup (single action call)"
-          echo "- **Most Flexible**: Separate creation (allows custom conda commands)"
-          echo "- **Existing Workflows**: Environment update (if you already use default environment)"

@@ -213,11 +213,3 @@ jobs:
             $fastest_shell = "cmd"
             $fastest_time = $cmd_total
           }
-          
-          echo "**Fastest Shell**: $fastest_shell (${fastest_time}s total)"
-          echo ""
-          echo "**Key Insights**:"
-          echo "- Shell choice can impact conda environment performance"
-          echo "- Setup time includes conda initialization for each shell"
-          echo "- Creation/deletion times show shell-specific conda command execution"
-          echo "- Results may vary based on system configuration and conda version"

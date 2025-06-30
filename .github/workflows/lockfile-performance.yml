@@ -252,17 +252,3 @@ jobs:
               echo "**conda advantage**: ${speedup}x faster than pip requirements"
             }
           }
-          
-          echo ""
-          echo "**Key Insights**:"
-          echo "- **conda-lock** provides exact reproducibility with pre-resolved dependencies"
-          echo "- **Standard environment.yml** allows version flexibility but variable resolution time"
-          echo "- **pip requirements.txt** fastest for Python-only packages but less reproducible"
-          echo "- **Production deployments** should use conda-lock for consistency"
-          echo "- **Development environments** can use standard environment.yml for flexibility"
-          echo "- **Hybrid approach**: Use conda-lock in CI/CD, environment.yml for local development"
-          echo ""
-          echo "**Reproducibility Ranking** (most to least reproducible):"
-          echo "1. conda-lock (exact versions, locked dependencies)"
-          echo "2. Standard environment.yml (specified versions, latest compatible)"
-          echo "3. pip requirements.txt (flexible versions, latest available)"

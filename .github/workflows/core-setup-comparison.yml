@@ -389,17 +389,3 @@ jobs:
             $miniforge_ratio = [math]::Round(($miniforge_total / $native_total), 1)
             echo "**Miniforge Overhead**: +${miniforge_overhead}s (${miniforge_ratio}x slower than native)"
           }
-          
-          echo ""
-          echo "**Key Insights**:"
-          echo "- **Native conda** (pre-installed) provides the absolute fastest performance"
-          echo "- **setup-miniconda action** adds initialization overhead even with same conda version"
-          echo "- **Latest miniconda download** adds significant time due to download and installation"
-          echo "- **Miniforge** may be faster for conda-forge heavy environments"
-          echo "- **All tests use PowerShell** for consistent Windows testing"
-          echo ""
-          echo "**Recommendations**:"
-          echo "- **CI/CD Speed**: Use native conda if available on runner"
-          echo "- **Compatibility**: Use setup-miniconda action for consistency across environments"
-          echo "- **Latest Features**: Use latest miniconda when you need newest conda features"
-          echo "- **conda-forge Heavy**: Consider Miniforge for conda-forge dominated environments"
