@@ -11,145 +11,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  channel-validation:
-    name: Validate Channel Contents
-    runs-on: windows-latest
-    outputs:
-      custom-channel-valid: ${{ steps.validate.outputs.custom-valid }}
-      custom-package-count: ${{ steps.validate.outputs.custom-count }}
-      custom-essential-packages: ${{ steps.validate.outputs.essential-packages }}
-      defaults-package-count: ${{ steps.validate.outputs.defaults-count }}
-      conda-forge-package-count: ${{ steps.validate.outputs.conda-forge-count }}
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniconda-version: "latest"
-          auto-activate-base: false
-
-      - name: Validate All Channels
-        id: validate
-        run: |
-          echo "=== Validating Channel Contents ==="
-          
-          # Function to safely count packages in a channel
-          function Get-ChannelPackageCount {
-            param($Channel, $ChannelName)
-          
-            try {
-              echo "Checking $ChannelName channel..."
-              $search_cmd = if ($Channel -eq "defaults") {
-                "conda search --json -c defaults --override-channels"
-              } elseif ($Channel -eq "conda-forge") {
-                "conda search --json -c conda-forge --override-channels"
-              } else {
-                "conda search --json -c $Channel --override-channels"
-              }
-          
-              Invoke-Expression "$search_cmd > ${ChannelName}_packages.json 2>`$null"
-          
-              if (Test-Path "${ChannelName}_packages.json" -and (Get-Item "${ChannelName}_packages.json").Length -gt 10) {
-                $json_content = Get-Content "${ChannelName}_packages.json" -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                if ($json_content) {
-                  $count = ($json_content | Get-Member -Type NoteProperty).Count
-                  echo "✅ $ChannelName: $count packages found"
-                  return $count
-                }
-              }
-          
-              # Fallback to text parsing
-              echo "JSON parsing failed, using text fallback for $ChannelName..."
-              $text_output = Invoke-Expression "$search_cmd 2>&1" | Where-Object { 
-                $_ -match "^\w+\s+" -and $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|`$|Error)" 
-              }
-              $count = ($text_output | Measure-Object).Count
-              echo "⚠️ $ChannelName: $count packages (text parsing)"
-              return $count
-          
-            } catch {
-              echo "❌ $ChannelName: Failed to count packages - $_"
-              return 0
-            }
-          }
-          
-          # Validate custom channel (danyeaw)
-          echo "=== Custom Channel Validation ==="
-          $custom_count = Get-ChannelPackageCount -Channel "danyeaw" -ChannelName "custom"
-          
-          # Check for essential packages in custom channel
-          $essential_packages = @('python', 'pip', 'setuptools', 'numpy', 'pandas')
-          $available_essentials = @()
-          
-          if ($custom_count -gt 0) {
-            foreach ($pkg in $essential_packages) {
-              try {
-                conda search -c danyeaw --override-channels $pkg --json > temp_search.json 2>$null
-                if (Test-Path temp_search.json -and (Get-Item temp_search.json).Length -gt 10) {
-                  $available_essentials += $pkg
-                  echo "✅ $pkg available in custom channel"
-                } else {
-                  echo "❌ $pkg NOT available in custom channel"
-                }
-                Remove-Item temp_search.json -ErrorAction SilentlyContinue
-              } catch {
-                echo "❌ $pkg check failed: $_"
-              }
-            }
-          }
-          
-          # Validate other channels
-          echo "=== Standard Channel Validation ==="
-          $defaults_count = Get-ChannelPackageCount -Channel "defaults" -ChannelName "defaults"
-          $conda_forge_count = Get-ChannelPackageCount -Channel "conda-forge" -ChannelName "conda-forge"
-          
-          # Set outputs
-          $custom_valid = if ($custom_count -gt 0 -and $available_essentials.Count -ge 1) { "true" } else { "false" }
-          echo "custom-valid=$custom_valid" >> $env:GITHUB_OUTPUT
-          echo "custom-count=$custom_count" >> $env:GITHUB_OUTPUT
-          echo "essential-packages=$($available_essentials -join ',')" >> $env:GITHUB_OUTPUT
-          echo "defaults-count=$defaults_count" >> $env:GITHUB_OUTPUT
-          echo "conda-forge-count=$conda_forge_count" >> $env:GITHUB_OUTPUT
-          
-          # Generate dynamic environment files
-          echo "=== Generating Environment Files ==="
-          
-          # Custom channel environment (only if valid)
-          if ($custom_valid -eq "true") {
-            $custom_env = "name: custom-channel-test`nchannels:`n  - danyeaw`ndependencies:"
-            $pkg_count = 0
-            foreach ($pkg in $available_essentials) {
-              if ($pkg_count -lt 3) {
-                $custom_env += "`n  - $pkg"
-                $pkg_count++
-              }
-            }
-            $custom_env | Out-File -FilePath "environment-custom-validated.yml" -Encoding utf8
-            echo "📄 Generated environment-custom-validated.yml with $pkg_count packages"
-          }
-          
-          # Summary
-          echo "=== VALIDATION SUMMARY ==="
-          echo "Custom Channel (danyeaw): $custom_count packages, Valid: $custom_valid"
-          echo "Defaults Channel: $defaults_count packages"
-          echo "Conda-forge Channel: $conda_forge_count packages"
-          echo "Essential packages in custom: $($available_essentials -join ', ')"
-
   full-channels:
-    name: Full Channels (conda-forge + defaults)
+    name: Full Channels Test
     runs-on: windows-latest
-    needs: channel-validation
     timeout-minutes: 30
     outputs:
       total-time: ${{ steps.results.outputs.total-time }}
-      channel-index-time: ${{ steps.results.outputs.channel-index-time }}
-      resolve-time: ${{ steps.results.outputs.resolve-time }}
-      download-time: ${{ steps.results.outputs.download-time }}
       packages-found: ${{ steps.results.outputs.packages-found }}
     defaults:
       run:
@@ -158,10 +25,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Start Performance Timing
+      - name: Start Timing
         run: |
-          echo "=== Testing Full Channels Performance ==="
-          echo "Expected packages: ~${{ needs.channel-validation.outputs.conda-forge-package-count }}"
           echo "TOTAL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
 
       - name: Setup Miniconda
@@ -171,119 +36,38 @@ jobs:
           channels: conda-forge,defaults
           auto-activate-base: false
 
-      - name: Channel Index Performance
+      - name: Create Environment
         run: |
-          echo "=== Measuring Channel Index Download ==="
-          echo "CHANNEL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          # Force channel index refresh
-          conda clean --index-cache -y
-          conda search --info python > $null 2>&1
-          
-          $channel_end = [System.DateTime]::Now.Ticks
-          $channel_duration = ($channel_end - $env:CHANNEL_START_TIME) / 10000000
-          echo "CHANNEL_INDEX_TIME=$([math]::Round($channel_duration, 1))" >> $env:GITHUB_ENV
-          echo "Channel index download: $([math]::Round($channel_duration, 1))s"
+          conda env create -f environment.yml -n test-env
 
-      - name: Dependency Resolution Performance
+      - name: Count Packages
         run: |
-          echo "=== Measuring Dependency Resolution ==="
-          echo "RESOLVE_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          # Create comprehensive environment file for testing
-          $env_content = "name: full-test`nchannels:`n  - conda-forge`n  - defaults`ndependencies:`n  - python=3.9`n  - numpy`n  - pandas`n  - matplotlib`n  - scipy`n  - jupyter`n  - requests`n  - pip"
-          $env_content | Out-File -FilePath "environment-full-test.yml" -Encoding utf8
-          
-          # Test dependency resolution without actually creating environment
-          conda env create -f environment-full-test.yml -n resolve-test --dry-run > $null 2>&1
-          
-          $resolve_end = [System.DateTime]::Now.Ticks
-          $resolve_duration = ($resolve_end - $env:RESOLVE_START_TIME) / 10000000
-          echo "RESOLVE_TIME=$([math]::Round($resolve_duration, 1))" >> $env:GITHUB_ENV
-          echo "Dependency resolution: $([math]::Round($resolve_duration, 1))s"
-
-      - name: Environment Creation Performance
-        timeout-minutes: 20
-        run: |
-          echo "=== Measuring Environment Creation ==="
-          echo "DOWNLOAD_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          conda env create -f environment-full-test.yml -n full-channels-test --verbose
-          
-          $download_end = [System.DateTime]::Now.Ticks
-          $download_duration = ($download_end - $env:DOWNLOAD_START_TIME) / 10000000
-          echo "DOWNLOAD_TIME=$([math]::Round($download_duration, 1))" >> $env:GITHUB_ENV
-          echo "Package download + install: $([math]::Round($download_duration, 1))s"
-
-      - name: Count Available Packages
-        run: |
-          echo "=== Counting Available Packages ==="
-          
-          # Use JSON parsing for accuracy
-          conda search --json > full_packages.json 2>$null || echo "Search completed"
-          
-          $package_count = 0
-          if (Test-Path full_packages.json -and (Get-Item full_packages.json).Length -gt 10) {
-            try {
-              $json_content = Get-Content full_packages.json -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-              if ($json_content) {
-                $package_count = ($json_content | Get-Member -Type NoteProperty).Count
-                echo "✅ JSON parsing successful: $package_count packages"
-              }
-            } catch {
-              echo "JSON parsing failed, using fallback"
-            }
-          }
-          
-          # Fallback to text parsing if needed
-          if ($package_count -eq 0) {
-            $search_output = conda search 2>&1 | Where-Object { 
-              $_ -match "^\w+\s+" -and $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|`$)" 
-            }
-            $package_count = ($search_output | Measure-Object).Count
-            echo "⚠️ Using text parsing: $package_count packages"
-          }
-          
+          $search_output = conda search --json 2>$null
+          $json_content = $search_output | ConvertFrom-Json -ErrorAction SilentlyContinue
+          $package_count = if ($json_content) { ($json_content | Get-Member -Type NoteProperty).Count } else { 0 }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Total packages available: $package_count"
 
-      - name: Calculate Total Time and Set Results
+      - name: Calculate Results
         id: results
         run: |
           $end_time = [System.DateTime]::Now.Ticks
-          $total_duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
-          $formatted_total = [math]::Round($total_duration, 1)
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
           
-          echo "=== FULL CHANNELS PERFORMANCE BREAKDOWN ==="
-          echo "Channel Index: $env:CHANNEL_INDEX_TIME seconds"
-          echo "Dependency Resolution: $env:RESOLVE_TIME seconds"  
-          echo "Download + Install: $env:DOWNLOAD_TIME seconds"
-          echo "Total Time: $formatted_total seconds"
-          echo "Available Packages: $env:PACKAGES_FOUND"
-          
-          # Set outputs
-          echo "total-time=$formatted_total" >> $env:GITHUB_OUTPUT
-          echo "channel-index-time=$env:CHANNEL_INDEX_TIME" >> $env:GITHUB_OUTPUT
-          echo "resolve-time=$env:RESOLVE_TIME" >> $env:GITHUB_OUTPUT
-          echo "download-time=$env:DOWNLOAD_TIME" >> $env:GITHUB_OUTPUT
-          echo "packages-found=$env:PACKAGES_FOUND" >> $env:GITHUB_OUTPUT
+          echo "Full channels: ${formatted_duration}s, ${env:PACKAGES_FOUND} packages"
+          echo "total-time=$formatted_duration" >> $env:GITHUB_OUTPUT
+          echo "packages-found=${env:PACKAGES_FOUND}" >> $env:GITHUB_OUTPUT
 
       - name: Cleanup
         if: always()
-        run: |
-          conda env remove -n full-channels-test -y 2>$null
-          conda env remove -n resolve-test -y 2>$null
+        run: conda env remove -n test-env -y
 
   defaults-only:
-    name: Defaults Only Channel
+    name: Defaults Only Test
     runs-on: windows-latest
-    needs: channel-validation
-    timeout-minutes: 25
+    timeout-minutes: 30
     outputs:
       total-time: ${{ steps.results.outputs.total-time }}
-      channel-index-time: ${{ steps.results.outputs.channel-index-time }}
-      resolve-time: ${{ steps.results.outputs.resolve-time }}
-      download-time: ${{ steps.results.outputs.download-time }}
       packages-found: ${{ steps.results.outputs.packages-found }}
     defaults:
       run:
@@ -292,142 +76,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Start Performance Timing
+      - name: Start Timing
         run: |
-          echo "=== Testing Defaults Only Performance ==="
-          echo "Expected packages: ~${{ needs.channel-validation.outputs.defaults-package-count }}"
           echo "TOTAL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
 
-      - name: Setup Miniconda with Strict Channel Control
+      - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniconda-version: "latest"
           channels: defaults
           auto-activate-base: false
 
-      - name: Configure Strict Defaults-Only Mode
+      - name: Create Environment
         run: |
-          echo "=== Configuring Strict Defaults-Only Mode ==="
-          
-          # Remove any other channels
-          conda config --remove-key channels 2>$null || echo "No channels to remove"
-          conda config --add channels defaults
-          conda config --set channel_priority strict
-          conda config --set restore_free_channel false
-          
-          echo "Final configuration:"
-          conda config --show channels
-          conda config --show channel_priority
+          conda env create -f environment-defaults.yml -n test-env
 
-      - name: Channel Index Performance
+      - name: Count Packages
         run: |
-          echo "=== Measuring Channel Index Download ==="
-          echo "CHANNEL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          conda clean --index-cache -y
-          conda search --info python -c defaults --override-channels > $null 2>&1
-          
-          $channel_end = [System.DateTime]::Now.Ticks
-          $channel_duration = ($channel_end - $env:CHANNEL_START_TIME) / 10000000
-          echo "CHANNEL_INDEX_TIME=$([math]::Round($channel_duration, 1))" >> $env:GITHUB_ENV
-          echo "Channel index download: $([math]::Round($channel_duration, 1))s"
-
-      - name: Dependency Resolution Performance
-        run: |
-          echo "=== Measuring Dependency Resolution ==="
-          echo "RESOLVE_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          # Create defaults-compatible environment
-          $env_content = "name: defaults-test`nchannels:`n  - defaults`ndependencies:`n  - python=3.9`n  - numpy`n  - pip`n  - setuptools"
-          $env_content | Out-File -FilePath "environment-defaults-test.yml" -Encoding utf8
-          
-          conda env create -f environment-defaults-test.yml -n resolve-test --dry-run -c defaults --override-channels > $null 2>&1
-          
-          $resolve_end = [System.DateTime]::Now.Ticks
-          $resolve_duration = ($resolve_end - $env:RESOLVE_START_TIME) / 10000000
-          echo "RESOLVE_TIME=$([math]::Round($resolve_duration, 1))" >> $env:GITHUB_ENV
-          echo "Dependency resolution: $([math]::Round($resolve_duration, 1))s"
-
-      - name: Environment Creation Performance
-        timeout-minutes: 15
-        run: |
-          echo "=== Measuring Environment Creation ==="
-          echo "DOWNLOAD_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          conda env create -f environment-defaults-test.yml -n defaults-only-test -c defaults --override-channels --verbose
-          
-          $download_end = [System.DateTime]::Now.Ticks
-          $download_duration = ($download_end - $env:DOWNLOAD_START_TIME) / 10000000
-          echo "DOWNLOAD_TIME=$([math]::Round($download_duration, 1))" >> $env:GITHUB_ENV
-          echo "Package download + install: $([math]::Round($download_duration, 1))s"
-
-      - name: Count Available Packages
-        run: |
-          echo "=== Counting Available Packages ==="
-          
-          conda search --json -c defaults --override-channels > defaults_packages.json 2>$null || echo "Search completed"
-          
-          $package_count = 0
-          if (Test-Path defaults_packages.json -and (Get-Item defaults_packages.json).Length -gt 10) {
-            try {
-              $json_content = Get-Content defaults_packages.json -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-              if ($json_content) {
-                $package_count = ($json_content | Get-Member -Type NoteProperty).Count
-                echo "✅ JSON parsing successful: $package_count packages"
-              }
-            } catch {
-              echo "JSON parsing failed, using fallback"
-            }
-          }
-          
-          if ($package_count -eq 0) {
-            $search_output = conda search -c defaults --override-channels 2>&1 | Where-Object { 
-              $_ -match "^\w+\s+" -and $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|`$)" 
-            }
-            $package_count = ($search_output | Measure-Object).Count
-            echo "⚠️ Using text parsing: $package_count packages"
-          }
-          
+          $search_output = conda search --json -c defaults --override-channels 2>$null
+          $json_content = $search_output | ConvertFrom-Json -ErrorAction SilentlyContinue
+          $package_count = if ($json_content) { ($json_content | Get-Member -Type NoteProperty).Count } else { 0 }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Total packages available: $package_count"
 
-      - name: Calculate Total Time and Set Results
+      - name: Calculate Results
         id: results
         run: |
           $end_time = [System.DateTime]::Now.Ticks
-          $total_duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
-          $formatted_total = [math]::Round($total_duration, 1)
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
           
-          echo "=== DEFAULTS ONLY PERFORMANCE BREAKDOWN ==="
-          echo "Channel Index: $env:CHANNEL_INDEX_TIME seconds"
-          echo "Dependency Resolution: $env:RESOLVE_TIME seconds"
-          echo "Download + Install: $env:DOWNLOAD_TIME seconds"
-          echo "Total Time: $formatted_total seconds"
-          echo "Available Packages: $env:PACKAGES_FOUND"
-          
-          echo "total-time=$formatted_total" >> $env:GITHUB_OUTPUT
-          echo "channel-index-time=$env:CHANNEL_INDEX_TIME" >> $env:GITHUB_OUTPUT
-          echo "resolve-time=$env:RESOLVE_TIME" >> $env:GITHUB_OUTPUT
-          echo "download-time=$env:DOWNLOAD_TIME" >> $env:GITHUB_OUTPUT
-          echo "packages-found=$env:PACKAGES_FOUND" >> $env:GITHUB_OUTPUT
+          echo "Defaults only: ${formatted_duration}s, ${env:PACKAGES_FOUND} packages"
+          echo "total-time=$formatted_duration" >> $env:GITHUB_OUTPUT
+          echo "packages-found=${env:PACKAGES_FOUND}" >> $env:GITHUB_OUTPUT
 
       - name: Cleanup
         if: always()
-        run: |
-          conda env remove -n defaults-only-test -y 2>$null
-          conda env remove -n resolve-test -y 2>$null
+        run: conda env remove -n test-env -y
 
-  custom-channel-only:
-    name: Custom Channel Only (danyeaw)
+  custom-channel:
+    name: Custom Channel Test
     runs-on: windows-latest
-    needs: channel-validation
-    if: needs.channel-validation.outputs.custom-channel-valid == 'true'
-    timeout-minutes: 25
+    timeout-minutes: 30
     outputs:
       total-time: ${{ steps.results.outputs.total-time }}
-      channel-index-time: ${{ steps.results.outputs.channel-index-time }}
-      resolve-time: ${{ steps.results.outputs.resolve-time }}
-      download-time: ${{ steps.results.outputs.download-time }}
       packages-found: ${{ steps.results.outputs.packages-found }}
       success: ${{ steps.results.outputs.success }}
     defaults:
@@ -437,11 +128,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Start Performance Timing
+      - name: Start Timing
         run: |
-          echo "=== Testing Custom Channel Only Performance ==="
-          echo "Expected packages: ${{ needs.channel-validation.outputs.custom-package-count }}"
-          echo "Available essentials: ${{ needs.channel-validation.outputs.custom-essential-packages }}"
           echo "TOTAL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
 
       - name: Setup Miniconda
@@ -450,439 +138,72 @@ jobs:
           miniconda-version: "latest"
           auto-activate-base: false
 
-      - name: Configure Strict Custom Channel Mode
-        run: |
-          echo "=== Configuring Strict Custom Channel Mode ==="
-          
-          # Complete channel reset for maximum isolation
-          conda config --remove-key channels 2>$null || echo "No channels to remove"
-          conda config --system --remove-key channels 2>$null || echo "No system channels"
-          
-          # Set ONLY custom channel
-          conda config --add channels danyeaw
-          conda config --set channel_priority strict
-          conda config --set restore_free_channel false
-          conda config --set use_only_tar_bz2 true
-          
-          # Verify strict isolation
-          echo "Final configuration:"
-          conda config --show channels
-          conda config --show channel_priority
-          
-          # Test isolation
-          echo "=== Testing Channel Isolation ==="
-          $explicit_search = conda search -c danyeaw --override-channels --json > explicit_test.json 2>$null
-          $default_search = conda search --json > default_test.json 2>$null
-          
-          $explicit_count = 0
-          $default_count = 0
-          
-          if (Test-Path explicit_test.json) {
-            try {
-              $explicit_json = Get-Content explicit_test.json -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-              if ($explicit_json) {
-                $explicit_count = ($explicit_json | Get-Member -Type NoteProperty).Count
-              }
-            } catch { }
-          }
-          
-          if (Test-Path default_test.json) {
-            try {
-              $default_json = Get-Content default_test.json -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-              if ($default_json) {
-                $default_count = ($default_json | Get-Member -Type NoteProperty).Count
-              }
-            } catch { }
-          }
-          
-          echo "Explicit channel search: $explicit_count packages"
-          echo "Default search: $default_count packages"
-          
-          if ([Math]::Abs($explicit_count - $default_count) -le 5) {
-            echo "✅ Channel isolation successful"
-          } else {
-            echo "❌ Channel isolation may have failed"
-            echo "This will still provide useful performance data"
-          }
-
-      - name: Channel Index Performance
-        run: |
-          echo "=== Measuring Channel Index Download ==="
-          echo "CHANNEL_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          conda clean --index-cache -y
-          conda search --info python -c danyeaw --override-channels > $null 2>&1
-          
-          $channel_end = [System.DateTime]::Now.Ticks
-          $channel_duration = ($channel_end - $env:CHANNEL_START_TIME) / 10000000
-          echo "CHANNEL_INDEX_TIME=$([math]::Round($channel_duration, 1))" >> $env:GITHUB_ENV
-          echo "Channel index download: $([math]::Round($channel_duration, 1))s"
-
-      - name: Dependency Resolution Performance
-        run: |
-          echo "=== Measuring Dependency Resolution ==="
-          echo "RESOLVE_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          # Use the validated environment file if it exists
-          $env_file = if (Test-Path "environment-custom-validated.yml") {
-            "environment-custom-validated.yml"
-          } else {
-            # Create minimal environment with available packages
-            $available = "${{ needs.channel-validation.outputs.custom-essential-packages }}".Split(',')
-            $env_content = "name: custom-test`nchannels:`n  - danyeaw`ndependencies:"
-            $pkg_count = 0
-            foreach ($pkg in $available) {
-              if ($pkg.Trim() -and $pkg_count -lt 2) {
-                $env_content += "`n  - $($pkg.Trim())"
-                $pkg_count++
-              }
-            }
-            $env_content | Out-File -FilePath "environment-custom-minimal.yml" -Encoding utf8
-            "environment-custom-minimal.yml"
-          }
-          
-          echo "Using environment file: $env_file"
-          conda env create -f $env_file -n resolve-test --dry-run -c danyeaw --override-channels > $null 2>&1
-          
-          $resolve_end = [System.DateTime]::Now.Ticks
-          $resolve_duration = ($resolve_end - $env:RESOLVE_START_TIME) / 10000000
-          echo "RESOLVE_TIME=$([math]::Round($resolve_duration, 1))" >> $env:GITHUB_ENV
-          echo "Dependency resolution: $([math]::Round($resolve_duration, 1))s"
-
-      - name: Environment Creation Performance
+      - name: Create Environment
         continue-on-error: true
-        timeout-minutes: 15
-        id: env-creation
+        id: env-create
         run: |
-          echo "=== Measuring Environment Creation ==="
-          echo "DOWNLOAD_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
-          
-          $env_file = if (Test-Path "environment-custom-validated.yml") {
-            "environment-custom-validated.yml"
-          } else {
-            "environment-custom-minimal.yml"
-          }
-          
-          conda env create -f $env_file -n custom-channel-test -c danyeaw --override-channels --verbose
-          
-          $download_end = [System.DateTime]::Now.Ticks
-          $download_duration = ($download_end - $env:DOWNLOAD_START_TIME) / 10000000
-          echo "DOWNLOAD_TIME=$([math]::Round($download_duration, 1))" >> $env:GITHUB_ENV
-          echo "Package download + install: $([math]::Round($download_duration, 1))s"
+          conda env create -f environment-small-channel.yml -n test-env
 
-      - name: Count Available Packages
+      - name: Count Packages
         run: |
-          echo "=== Counting Available Packages ==="
-          
-          conda search --json -c danyeaw --override-channels > custom_packages.json 2>$null || echo "Search completed"
-          
-          $package_count = 0
-          if (Test-Path custom_packages.json -and (Get-Item custom_packages.json).Length -gt 10) {
-            try {
-              $json_content = Get-Content custom_packages.json -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-              if ($json_content) {
-                $package_count = ($json_content | Get-Member -Type NoteProperty).Count
-                echo "✅ JSON parsing successful: $package_count packages"
-              }
-            } catch {
-              echo "JSON parsing failed, using fallback"
-            }
-          }
-          
-          if ($package_count -eq 0) {
-            $search_output = conda search -c danyeaw --override-channels 2>&1 | Where-Object { 
-              $_ -match "^\w+\s+" -and $_ -notmatch "^(Loading|Collecting|#|Name\s+Version|`$)" 
-            }
-            $package_count = ($search_output | Measure-Object).Count
-            echo "⚠️ Using text parsing: $package_count packages"
-          }
-          
+          $search_output = conda search --json -c danyeaw --override-channels 2>$null
+          $json_content = $search_output | ConvertFrom-Json -ErrorAction SilentlyContinue
+          $package_count = if ($json_content) { ($json_content | Get-Member -Type NoteProperty).Count } else { 0 }
           echo "PACKAGES_FOUND=$package_count" >> $env:GITHUB_ENV
-          echo "Total packages available: $package_count"
-          
-          # Validate against expected count
-          $expected = [int]"${{ needs.channel-validation.outputs.custom-package-count }}"
-          if ([Math]::Abs($package_count - $expected) -le 5) {
-            echo "✅ Package count matches validation ($expected ± 5)"
-          } else {
-            echo "⚠️ Package count ($package_count) differs from validation ($expected)"
-          }
 
-      - name: Calculate Total Time and Set Results
+      - name: Calculate Results
         id: results
         run: |
           $end_time = [System.DateTime]::Now.Ticks
-          $total_duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
-          $formatted_total = [math]::Round($total_duration, 1)
-          $creation_success = if ('${{ steps.env-creation.outcome }}' -eq 'success') { 'true' } else { 'false' }
+          $duration = ($end_time - $env:TOTAL_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          $success = if ('${{ steps.env-create.outcome }}' -eq 'success') { 'true' } else { 'false' }
           
-          echo "=== CUSTOM CHANNEL PERFORMANCE BREAKDOWN ==="
-          echo "Channel Index: $env:CHANNEL_INDEX_TIME seconds"
-          echo "Dependency Resolution: $env:RESOLVE_TIME seconds"
-          echo "Download + Install: $env:DOWNLOAD_TIME seconds"
-          echo "Total Time: $formatted_total seconds"
-          echo "Available Packages: $env:PACKAGES_FOUND"
-          echo "Environment Creation: $creation_success"
-          
-          echo "total-time=$formatted_total" >> $env:GITHUB_OUTPUT
-          echo "channel-index-time=$env:CHANNEL_INDEX_TIME" >> $env:GITHUB_OUTPUT
-          echo "resolve-time=$env:RESOLVE_TIME" >> $env:GITHUB_OUTPUT
-          echo "download-time=$env:DOWNLOAD_TIME" >> $env:GITHUB_OUTPUT
-          echo "packages-found=$env:PACKAGES_FOUND" >> $env:GITHUB_OUTPUT
-          echo "success=$creation_success" >> $env:GITHUB_OUTPUT
+          echo "Custom channel: ${formatted_duration}s, ${env:PACKAGES_FOUND} packages, Success: $success"
+          echo "total-time=$formatted_duration" >> $env:GITHUB_OUTPUT
+          echo "packages-found=${env:PACKAGES_FOUND}" >> $env:GITHUB_OUTPUT
+          echo "success=$success" >> $env:GITHUB_OUTPUT
 
       - name: Cleanup
         if: always()
-        run: |
-          conda env remove -n custom-channel-test -y 2>$null
-          conda env remove -n resolve-test -y 2>$null
+        run: conda env remove -n test-env -y
 
-  custom-channel-skipped:
-    name: Custom Channel Skipped
+  results:
+    name: Compare Results
     runs-on: windows-latest
-    needs: channel-validation
-    if: needs.channel-validation.outputs.custom-channel-valid != 'true'
-    outputs:
-      total-time: ${{ steps.mock-results.outputs.total-time }}
-      packages-found: ${{ steps.mock-results.outputs.packages-found }}
-      success: ${{ steps.mock-results.outputs.success }}
-    steps:
-      - name: Report Skip Reason
-        id: mock-results
-        shell: pwsh
-        run: |
-          echo "=== CUSTOM CHANNEL SKIPPED ==="
-          echo "Reason: Channel validation failed"
-          echo "Custom channel packages found: ${{ needs.channel-validation.outputs.custom-package-count }}"
-          echo "Essential packages available: ${{ needs.channel-validation.outputs.custom-essential-packages }}"
-          echo ""
-          echo "The custom channel (danyeaw) does not contain sufficient packages for meaningful testing."
-          echo "Ensure the channel contains at least one essential package (python, pip, setuptools, numpy, pandas)."
-          echo ""
-          echo "total-time=0" >> $env:GITHUB_OUTPUT
-          echo "packages-found=0" >> $env:GITHUB_OUTPUT
-          echo "success=false" >> $env:GITHUB_OUTPUT
-
-  performance-summary:
-    name: Channel Performance Analysis Report
-    runs-on: windows-latest
-    needs: [channel-validation, full-channels, defaults-only, custom-channel-only, custom-channel-skipped]
+    needs: [full-channels, defaults-only, custom-channel]
     if: always()
     steps:
-      - name: Generate Comprehensive Performance Report
+      - name: Generate Report
         shell: pwsh
         run: |
-          echo "# 📊 Channel Performance Analysis Report" >> $env:GITHUB_STEP_SUMMARY
+          echo "# Channel Performance Results" >> $env:GITHUB_STEP_SUMMARY
           echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Analysis Date:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Hypothesis:** Smaller conda channels should resolve dependencies faster due to reduced search space" >> $env:GITHUB_STEP_SUMMARY
+          echo "| Channel | Time (s) | Packages | Status |" >> $env:GITHUB_STEP_SUMMARY
+          echo "|---------|----------|----------|--------|" >> $env:GITHUB_STEP_SUMMARY
+          echo "| Full Channels | ${{ needs.full-channels.outputs.total-time }} | ${{ needs.full-channels.outputs.packages-found }} | ✅ Success |" >> $env:GITHUB_STEP_SUMMARY
+          echo "| Defaults Only | ${{ needs.defaults-only.outputs.total-time }} | ${{ needs.defaults-only.outputs.packages-found }} | ✅ Success |" >> $env:GITHUB_STEP_SUMMARY
+          
+          $custom_status = if ('${{ needs.custom-channel.outputs.success }}' -eq 'true') { "✅ Success" } else { "❌ Failed" }
+          echo "| Custom Channel | ${{ needs.custom-channel.outputs.total-time }} | ${{ needs.custom-channel.outputs.packages-found }} | $custom_status |" >> $env:GITHUB_STEP_SUMMARY
+          
           echo "" >> $env:GITHUB_STEP_SUMMARY
+          echo "## Analysis" >> $env:GITHUB_STEP_SUMMARY
           
-          # Channel validation results
-          echo "## 🔍 Channel Validation Results" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "| Channel | Packages Found | Status | Notes |" >> $env:GITHUB_STEP_SUMMARY
-          echo "|---------|----------------|--------|-------|" >> $env:GITHUB_STEP_SUMMARY
-          echo "| **conda-forge** | ${{ needs.channel-validation.outputs.conda-forge-package-count }} | ✅ Available | Full scientific ecosystem |" >> $env:GITHUB_STEP_SUMMARY
-          echo "| **defaults** | ${{ needs.channel-validation.outputs.defaults-package-count }} | ✅ Available | Anaconda curated packages |" >> $env:GITHUB_STEP_SUMMARY
+          $full_time = [double]'${{ needs.full-channels.outputs.total-time }}'
+          $defaults_time = [double]'${{ needs.defaults-only.outputs.total-time }}'
+          $custom_time = [double]'${{ needs.custom-channel.outputs.total-time }}'
           
-          $custom_status = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') { "✅ Available" } else { "❌ Invalid" }
-          $custom_notes = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') { 
-            "Essential packages: ${{ needs.channel-validation.outputs.custom-essential-packages }}" 
-          } else { 
-            "Insufficient packages for testing" 
-          }
-          echo "| **danyeaw (custom)** | ${{ needs.channel-validation.outputs.custom-package-count }} | $custom_status | $custom_notes |" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          # Performance results table
-          echo "## ⚡ Performance Results" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "| Channel Configuration | Total Time | Channel Index | Dependency Resolution | Download + Install | Packages | Environment Creation |" >> $env:GITHUB_STEP_SUMMARY
-          echo "|-----------------------|------------|---------------|----------------------|-------------------|----------|---------------------|" >> $env:GITHUB_STEP_SUMMARY
-          
-          # Full channels row
-          $full_total = "${{ needs.full-channels.outputs.total-time }}"
-          $full_index = "${{ needs.full-channels.outputs.channel-index-time }}"
-          $full_resolve = "${{ needs.full-channels.outputs.resolve-time }}"
-          $full_download = "${{ needs.full-channels.outputs.download-time }}"
-          $full_packages = "${{ needs.full-channels.outputs.packages-found }}"
-          echo "| **conda-forge + defaults** | ${full_total}s | ${full_index}s | ${full_resolve}s | ${full_download}s | $full_packages | ✅ Success |" >> $env:GITHUB_STEP_SUMMARY
-          
-          # Defaults only row
-          $def_total = "${{ needs.defaults-only.outputs.total-time }}"
-          $def_index = "${{ needs.defaults-only.outputs.channel-index-time }}"
-          $def_resolve = "${{ needs.defaults-only.outputs.resolve-time }}"
-          $def_download = "${{ needs.defaults-only.outputs.download-time }}"
-          $def_packages = "${{ needs.defaults-only.outputs.packages-found }}"
-          echo "| **defaults only** | ${def_total}s | ${def_index}s | ${def_resolve}s | ${def_download}s | $def_packages | ✅ Success |" >> $env:GITHUB_STEP_SUMMARY
-          
-          # Custom channel row
-          $custom_total = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') {
-            "${{ needs.custom-channel-only.outputs.total-time }}"
-          } else {
-            "N/A"
-          }
-          $custom_index = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') {
-            "${{ needs.custom-channel-only.outputs.channel-index-time }}"
-          } else {
-            "N/A"
-          }
-          $custom_resolve = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') {
-            "${{ needs.custom-channel-only.outputs.resolve-time }}"
-          } else {
-            "N/A"
-          }
-          $custom_download = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') {
-            "${{ needs.custom-channel-only.outputs.download-time }}"
-          } else {
-            "N/A"
-          }
-          $custom_packages = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') {
-            "${{ needs.custom-channel-only.outputs.packages-found }}"
-          } else {
-            "0"
-          }
-          $custom_success = if ('${{ needs.channel-validation.outputs.custom-channel-valid }}' -eq 'true') {
-            if ('${{ needs.custom-channel-only.outputs.success }}' -eq 'true') { "✅ Success" } else { "❌ Failed" }
-          } else {
-            "❌ Skipped"
-          }
-          echo "| **danyeaw (custom)** | ${custom_total}s | ${custom_index}s | ${custom_resolve}s | ${custom_download}s | $custom_packages | $custom_success |" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          # Performance analysis with proper numeric handling
-          echo "## 📈 Performance Analysis" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          $full_time_num = 0
-          $def_time_num = 0
-          $custom_time_num = 0
-          $full_pkg_num = 0
-          $def_pkg_num = 0
-          $custom_pkg_num = 0
-          
-          # Safely parse numbers
-          try { $full_time_num = [double]$full_total } catch { }
-          try { $def_time_num = [double]$def_total } catch { }
-          try { if ($custom_total -ne "N/A") { $custom_time_num = [double]$custom_total } } catch { }
-          try { $full_pkg_num = [int]$full_packages } catch { }
-          try { $def_pkg_num = [int]$def_packages } catch { }
-          try { $custom_pkg_num = [int]$custom_packages } catch { }
-          
-          echo "### 🎯 Speed Comparisons" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          if ($def_time_num -gt 0 -and $full_time_num -gt 0) {
-            if ($def_time_num -lt $full_time_num) {
-              $speedup = [math]::Round($full_time_num / $def_time_num, 1)
-              $time_saved = [math]::Round($full_time_num - $def_time_num, 1)
-              echo "- 🚀 **Defaults vs Full Channels:** ${speedup}x faster (saves ${time_saved}s)" >> $env:GITHUB_STEP_SUMMARY
-            } else {
-              $slowdown = [math]::Round($def_time_num / $full_time_num, 1)
-              $time_lost = [math]::Round($def_time_num - $full_time_num, 1)
-              echo "- ⚠️ **Full Channels vs Defaults:** ${slowdown}x faster than defaults (+${time_lost}s)" >> $env:GITHUB_STEP_SUMMARY
-            }
+          if ($defaults_time -lt $full_time) {
+            $speedup = [math]::Round($full_time / $defaults_time, 1)
+            echo "- Defaults-only is ${speedup}x faster than full channels" >> $env:GITHUB_STEP_SUMMARY
           }
           
-          if ($custom_time_num -gt 0 -and '${{ needs.custom-channel-only.outputs.success }}' -eq 'true') {
-            if ($custom_time_num -lt $full_time_num) {
-              $speedup = [math]::Round($full_time_num / $custom_time_num, 1)
-              $time_saved = [math]::Round($full_time_num - $custom_time_num, 1)
-              echo "- 🎯 **Custom vs Full Channels:** ${speedup}x faster (saves ${time_saved}s)" >> $env:GITHUB_STEP_SUMMARY
-            }
-            if ($custom_time_num -lt $def_time_num) {
-              $speedup = [math]::Round($def_time_num / $custom_time_num, 1)
-              $time_saved = [math]::Round($def_time_num - $custom_time_num, 1)
-              echo "- 🏆 **Custom vs Defaults:** ${speedup}x faster (saves ${time_saved}s)" >> $env:GITHUB_STEP_SUMMARY
-            }
-          } else {
-            echo "- ❌ **Custom Channel:** Could not complete testing due to insufficient packages" >> $env:GITHUB_STEP_SUMMARY
-          }
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          # Efficiency metrics
-          echo "### 📊 Efficiency Metrics (Time per 1000 Packages)" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "| Channel | Time per 1000 Packages | Efficiency Rating |" >> $env:GITHUB_STEP_SUMMARY
-          echo "|---------|------------------------|-------------------|" >> $env:GITHUB_STEP_SUMMARY
-          
-          if ($full_pkg_num -gt 0) {
-            $full_efficiency = [math]::Round($full_time_num * 1000 / $full_pkg_num, 3)
-            echo "| conda-forge + defaults | ${full_efficiency}s | Baseline |" >> $env:GITHUB_STEP_SUMMARY
+          if ('${{ needs.custom-channel.outputs.success }}' -eq 'true' -and $custom_time -lt $full_time) {
+            $speedup = [math]::Round($full_time / $custom_time, 1)
+            echo "- Custom channel is ${speedup}x faster than full channels" >> $env:GITHUB_STEP_SUMMARY
           }
           
-          if ($def_pkg_num -gt 0) {
-            $def_efficiency = [math]::Round($def_time_num * 1000 / $def_pkg_num, 3)
-            $def_rating = if ($full_pkg_num -gt 0) {
-              $ratio = $def_efficiency / $full_efficiency
-              if ($ratio -lt 0.8) { "🚀 Excellent" }
-              elseif ($ratio -lt 1.2) { "✅ Good" }
-              else { "⚠️ Poor" }
-            } else { "✅ Good" }
-            echo "| defaults only | ${def_efficiency}s | $def_rating |" >> $env:GITHUB_STEP_SUMMARY
+          if ('${{ needs.custom-channel.outputs.success }}' -ne 'true') {
+            echo "- Custom channel test failed - insufficient packages available" >> $env:GITHUB_STEP_SUMMARY
           }
-          
-          if ($custom_pkg_num -gt 0 -and $custom_time_num -gt 0) {
-            $custom_efficiency = [math]::Round($custom_time_num * 1000 / $custom_pkg_num, 3)
-            $custom_rating = if ($full_pkg_num -gt 0) {
-              $ratio = $custom_efficiency / $full_efficiency
-              if ($ratio -lt 0.5) { "🏆 Outstanding" }
-              elseif ($ratio -lt 0.8) { "🚀 Excellent" }
-              elseif ($ratio -lt 1.2) { "✅ Good" }
-              else { "⚠️ Poor" }
-            } else { "🚀 Excellent" }
-            echo "| danyeaw (custom) | ${custom_efficiency}s | $custom_rating |" >> $env:GITHUB_STEP_SUMMARY
-          } else {
-            echo "| danyeaw (custom) | N/A | ❌ Failed |" >> $env:GITHUB_STEP_SUMMARY
-          }
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          # Key insights and recommendations
-          echo "## 💡 Key Insights & Recommendations" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          echo "### ✅ Hypothesis Validation" >> $env:GITHUB_STEP_SUMMARY
-          if ($custom_time_num -gt 0 -and $custom_time_num -lt $full_time_num -and $custom_time_num -lt $def_time_num) {
-            echo "- **CONFIRMED:** Smaller channels do resolve dependencies faster" >> $env:GITHUB_STEP_SUMMARY
-            echo "- Custom channel with $custom_pkg_num packages outperformed larger channels" >> $env:GITHUB_STEP_SUMMARY
-          } elseif ($def_time_num -gt 0 -and $def_time_num -lt $full_time_num) {
-            echo "- **PARTIALLY CONFIRMED:** Medium-sized channels (defaults) outperform large channels" >> $env:GITHUB_STEP_SUMMARY
-            echo "- Custom channel testing was incomplete due to package availability" >> $env:GITHUB_STEP_SUMMARY
-          } else {
-            echo "- **INCONCLUSIVE:** Results don't clearly support the hypothesis" >> $env:GITHUB_STEP_SUMMARY
-            echo "- Further investigation needed with properly configured custom channels" >> $env:GITHUB_STEP_SUMMARY
-          }
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          echo "### 🎯 Actionable Recommendations" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          if ($def_time_num -gt 0 -and $def_time_num -lt $full_time_num) {
-            $improvement = [math]::Round((($full_time_num - $def_time_num) / $full_time_num) * 100, 0)
-            echo "1. **Consider defaults-only for production:** ~${improvement}% faster than full channels" >> $env:GITHUB_STEP_SUMMARY
-            echo "2. **Validate package availability:** Ensure all required packages exist in defaults channel" >> $env:GITHUB_STEP_SUMMARY
-          }
-          
-          if ($custom_time_num -gt 0 -and '${{ needs.custom-channel-only.outputs.success }}' -eq 'true') {
-            echo "3. **Custom channel strategy:** Significant performance gains possible with curated channels" >> $env:GITHUB_STEP_SUMMARY
-            echo "4. **Maintain minimal channel:** Include only essential packages for maximum speed" >> $env:GITHUB_STEP_SUMMARY
-          } else {
-            echo "3. **Improve custom channel:** Add essential packages (python, pip, numpy, pandas) to danyeaw channel" >> $env:GITHUB_STEP_SUMMARY
-            echo "4. **Verify channel contents:** Ensure packages are properly uploaded and accessible" >> $env:GITHUB_STEP_SUMMARY
-          }
-          
-          echo "5. **Monitor regularly:** Channel performance can change as package counts grow" >> $env:GITHUB_STEP_SUMMARY
-          echo "6. **Consider hybrid approach:** Use fast channels for common packages, fallback for specialized ones" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          echo "### 🔧 Technical Notes" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "- **Timing includes:** Channel index download, dependency resolution, package download, and installation" >> $env:GITHUB_STEP_SUMMARY
-          echo "- **Channel isolation:** Strict \`--override-channels\` used to prevent fallback behavior" >> $env:GITHUB_STEP_SUMMARY
-          echo "- **Package counting:** JSON parsing with text fallback for accuracy" >> $env:GITHUB_STEP_SUMMARY
-          echo "- **Environment:** Windows latest, Miniconda with libmamba solver" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          
-          echo "---" >> $env:GITHUB_STEP_SUMMARY
-          echo "*This analysis helps optimize conda channel selection for faster CI/CD pipelines and developer workflows.*" >> $env:GITHUB_STEP_SUMMARY
