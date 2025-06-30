@@ -1,6 +1,6 @@
 name: test-env
 channels:
-  - danyeaw
+  - danyeaw/label/danyeaw
 dependencies:
   - python=3.11
   - numpy
