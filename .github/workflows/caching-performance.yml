@@ -108,37 +108,23 @@ jobs:
         with:
           miniforge-version: latest
 
-      - name: Cache Conda environment (First Run - Force Miss)
-        if: matrix.cache-run == 'first'
+      - name: Cache Conda environment
         uses: actions/cache@v4
         with:
           path: ${{ env.CONDA }}/envs/test-env
-          key: conda-env-windows-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
-        id: cache-first
-
-      - name: Cache Conda environment (Second Run - Allow Hit)
-        if: matrix.cache-run == 'second'
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.CONDA }}/envs/test-env
-          key: conda-env-windows-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}-second
+          key: conda-env-windows-${{ matrix.cache-run }}-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
           restore-keys: |
-            conda-env-windows-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
-        id: cache-second
+            conda-env-windows-first-${{ hashFiles('environment.yml') }}-${{ env.CACHE_NUMBER }}-${{ github.run_id }}
+        id: cache
 
       - name: Time Environment Update (Cache Miss/Hit)
+        env:
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
         run: |
-          # Get cache hit status based on which run this is
-          if ("${{ matrix.cache-run }}" -eq "first") {
-            $cache_hit = "${{ steps.cache-first.outputs.cache-hit }}"
-          } else {
-            $cache_hit = "${{ steps.cache-second.outputs.cache-hit }}"
-          }
-          
-          echo "Cache hit: $cache_hit"
+          echo "Cache hit: $env:CACHE_HIT"
           $start_time = [System.DateTime]::Now.Ticks
           
-          if ($cache_hit -ne "true") {
+          if ($env:CACHE_HIT -ne "true") {
             echo "Cache miss - creating environment from scratch"
             conda env create -f environment.yml -n test-env
           } else {
@@ -153,34 +139,28 @@ jobs:
           $duration = ($end_time - $start_time) / 10000000
           $formatted_duration = [math]::Round($duration, 1)
           echo "ENV_CACHE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          echo "CACHE_HIT_STATUS=$env:CACHE_HIT" >> $env:GITHUB_ENV
 
       - name: Set First Run Outputs
         if: matrix.cache-run == 'first'
         id: first-results
         run: |
           echo "env-time=$env:ENV_CACHE_TIME" >> $env:GITHUB_OUTPUT
-          echo "cache-hit=${{ steps.cache-first.outputs.cache-hit }}" >> $env:GITHUB_OUTPUT
+          echo "cache-hit=$env:CACHE_HIT_STATUS" >> $env:GITHUB_OUTPUT
 
       - name: Set Second Run Outputs
         if: matrix.cache-run == 'second'
         id: second-results
         run: |
           echo "env-time=$env:ENV_CACHE_TIME" >> $env:GITHUB_OUTPUT
-          echo "cache-hit=${{ steps.cache-second.outputs.cache-hit }}" >> $env:GITHUB_OUTPUT
+          echo "cache-hit=$env:CACHE_HIT_STATUS" >> $env:GITHUB_OUTPUT
 
       - name: Report Environment Cache Performance
         run: |
-          # Get cache hit status based on which run this is
-          if ("${{ matrix.cache-run }}" -eq "first") {
-            $cache_hit = "${{ steps.cache-first.outputs.cache-hit }}"
-          } else {
-            $cache_hit = "${{ steps.cache-second.outputs.cache-hit }}"
-          }
-          
           echo "=== ENVIRONMENT CACHE PERFORMANCE SUMMARY ==="
           echo "OS: Windows"
           echo "Cache Run: ${{ matrix.cache-run }}"
-          echo "Cache Hit: $cache_hit"
+          echo "Cache Hit: $env:CACHE_HIT_STATUS"
           echo "Setup Time: $env:ENV_CACHE_TIME seconds"
 
   drive-optimization:
