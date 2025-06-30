@@ -1,0 +1,9 @@
+name: test-env
+channels:
+  - danyeaw
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - requests
+  - pytest
