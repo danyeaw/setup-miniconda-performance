@@ -40,6 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       triggered-workflows: ${{ steps.trigger.outputs.workflows }}
+      trigger-time: ${{ steps.trigger.outputs.trigger-time }}
     steps:
       - name: Trigger Selected Tests
         id: trigger
@@ -59,37 +60,47 @@ jobs:
             };
             
             const triggeredWorkflows = [];
+            const triggerTime = new Date().toISOString();
             
             if (testSuite === 'all') {
               // Trigger all workflows
               for (const [name, workflowFile] of Object.entries(workflows)) {
-                await github.rest.actions.createWorkflowDispatch({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  workflow_id: workflowFile,
-                  ref: 'main'
-                });
-                triggeredWorkflows.push(name);
-                console.log(`✅ Triggered ${name}`);
+                try {
+                  await github.rest.actions.createWorkflowDispatch({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    workflow_id: workflowFile,
+                    ref: 'main'
+                  });
+                  triggeredWorkflows.push(name);
+                  console.log(`✅ Triggered ${name}`);
+                } catch (error) {
+                  console.log(`❌ Failed to trigger ${name}: ${error.message}`);
+                }
             
                 // Add delay between triggers to avoid rate limiting
                 await new Promise(resolve => setTimeout(resolve, 2000));
               }
             } else if (workflows[testSuite]) {
               // Trigger specific workflow
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: workflows[testSuite],
-                ref: 'main'
-              });
-              triggeredWorkflows.push(testSuite);
-              console.log(`✅ Triggered ${testSuite}`);
+              try {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: workflows[testSuite],
+                  ref: 'main'
+                });
+                triggeredWorkflows.push(testSuite);
+                console.log(`✅ Triggered ${testSuite}`);
+              } catch (error) {
+                console.log(`❌ Failed to trigger ${testSuite}: ${error.message}`);
+              }
             } else {
               console.log(`❌ Unknown test suite: ${testSuite}`);
             }
             
             core.setOutput('workflows', JSON.stringify(triggeredWorkflows));
+            core.setOutput('trigger-time', triggerTime);
             return triggeredWorkflows;
 
       - name: Display Triggered Tests
@@ -97,6 +108,7 @@ jobs:
           echo "=== TRIGGERED PERFORMANCE TESTS ==="
           echo "Test Suite: ${{ github.event.inputs.test-suite || 'all' }}"
           echo "Triggered Workflows: ${{ steps.trigger.outputs.workflows }}"
+          echo "Trigger Time: ${{ steps.trigger.outputs.trigger-time }}"
           echo ""
           echo "You can monitor the progress of these tests in the Actions tab:"
           echo "https://github.com/${{ github.repository }}/actions"
@@ -113,6 +125,7 @@ jobs:
         with:
           script: |
             const triggeredWorkflows = JSON.parse('${{ needs.trigger-tests.outputs.triggered-workflows }}');
+            const triggerTime = new Date('${{ needs.trigger-tests.outputs.trigger-time }}');
             
             const workflowFiles = {
               'core-setup-comparison': 'core-setup-comparison.yml',
@@ -130,6 +143,11 @@ jobs:
             
             console.log(`Waiting for ${triggeredWorkflows.length} workflows to complete...`);
             console.log(`Workflows: ${triggeredWorkflows.join(', ')}`);
+            console.log(`Looking for runs after: ${triggerTime.toISOString()}`);
+            
+            // Give workflows time to start
+            console.log('⏳ Initial 60s wait for workflows to start...');
+            await new Promise(resolve => setTimeout(resolve, 60000));
             
             while (Date.now() - startTime < maxWaitTime) {
               const results = {};
@@ -141,24 +159,28 @@ jobs:
                 if (!workflowFile) continue;
             
                 try {
+                  // Get recent runs without event filtering (API delay issue)
                   const runs = await github.rest.actions.listWorkflowRuns({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     workflow_id: workflowFile,
-                    per_page: 5
+                    per_page: 20
                   });
             
-                  // Look for runs that started after this workflow began
-                  const recentRun = runs.data.workflow_runs.find(run => 
-                    new Date(run.created_at) > new Date('${{ github.run_started_at }}')
-                  );
+                  // Look for runs that started around our trigger time (within 5 minutes)
+                  const recentRun = runs.data.workflow_runs.find(run => {
+                    const runTime = new Date(run.created_at);
+                    const timeDiff = Math.abs(runTime - triggerTime);
+                    return timeDiff < 5 * 60 * 1000; // Within 5 minutes
+                  });
             
                   if (recentRun) {
                     results[workflowName] = {
                       status: recentRun.status,
                       conclusion: recentRun.conclusion,
                       html_url: recentRun.html_url,
-                      created_at: recentRun.created_at
+                      created_at: recentRun.created_at,
+                      run_number: recentRun.run_number
                     };
             
                     if (recentRun.status === 'in_progress' || recentRun.status === 'queued') {
@@ -168,12 +190,12 @@ jobs:
                       allCompleted = false;
                     }
                   } else {
-                    results[workflowName] = { status: 'not_started' };
+                    results[workflowName] = { status: 'not_found' };
                     allCompleted = false;
                   }
                 } catch (error) {
                   console.log(`Error checking ${workflowName}: ${error.message}`);
-                  results[workflowName] = { status: 'error' };
+                  results[workflowName] = { status: 'error', error: error.message };
                   allCompleted = false;
                 }
               }
@@ -183,14 +205,23 @@ jobs:
               console.log(`\n⏱️  Elapsed: ${elapsed}s`);
             
               for (const [name, result] of Object.entries(results)) {
-                const status = result.status === 'completed' ? 
-                  `✅ ${result.conclusion}` : 
-                  result.status === 'in_progress' ? 
-                  `🔄 running` :
-                  result.status === 'queued' ?
-                  `⏳ queued` :
-                  `❓ ${result.status}`;
-                console.log(`  ${name}: ${status}`);
+                let status;
+                if (result.status === 'completed') {
+                  status = `✅ ${result.conclusion}`;
+                } else if (result.status === 'in_progress') {
+                  status = `🔄 running`;
+                } else if (result.status === 'queued') {
+                  status = `⏳ queued`;
+                } else if (result.status === 'not_found') {
+                  status = `❓ not found`;
+                } else if (result.status === 'error') {
+                  status = `❌ error`;
+                } else {
+                  status = `❓ ${result.status}`;
+                }
+            
+                const runInfo = result.run_number ? ` (#${result.run_number})` : '';
+                console.log(`  ${name}${runInfo}: ${status}`);
               }
             
               if (allCompleted) {
@@ -201,9 +232,11 @@ jobs:
                 return results;
               }
             
-              if (!anyRunning && elapsed > 300) { // If nothing running after 5 minutes
-                console.log(`\n⚠️  No workflows appear to be running after ${elapsed}s`);
-                console.log('This might indicate a workflow dispatch issue');
+              // Check if we have found some workflows but none are running after reasonable time
+              const foundWorkflows = Object.values(results).filter(r => r.status !== 'not_found' && r.status !== 'error');
+              if (foundWorkflows.length === 0 && elapsed > 300) {
+                console.log(`\n⚠️  No workflows found after ${elapsed}s`);
+                console.log('This might indicate a workflow dispatch issue or timing problem');
               }
             
               // Wait before next poll
@@ -215,6 +248,13 @@ jobs:
             const elapsed = Math.round((Date.now() - startTime) / 1000);
             console.log(`\n⏰ Timeout reached after ${elapsed}s`);
             console.log('Some workflows may still be running');
+            
+            const results = {};
+            for (const workflowName of triggeredWorkflows) {
+              if (!results[workflowName]) {
+                results[workflowName] = { status: 'timeout' };
+              }
+            }
             
             core.setOutput('results', JSON.stringify(results));
             core.setOutput('all_completed', 'false');
@@ -229,7 +269,7 @@ jobs:
         run: |
           echo "=== PERFORMANCE TEST SUMMARY ===" 
           echo ""
-          echo "**Triggered at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "**Triggered at:** ${{ needs.trigger-tests.outputs.trigger-time }}"
           echo "**Test Suite:** ${{ github.event.inputs.test-suite || 'all' }}"
           echo "**Wait Time:** ${{ steps.smart-wait.outputs.wait_time }}s"
           echo ""
@@ -245,7 +285,8 @@ jobs:
             else 
               (.value.status // "unknown")
             end) +
-            (if .value.html_url then " ([View](" + .value.html_url + "))" else "" end)
+            (if .value.html_url then " ([View](" + .value.html_url + "))" else "" end) +
+            (if .value.run_number then " (#" + (.value.run_number | tostring) + ")" else "" end)
           '
           
           echo ""
