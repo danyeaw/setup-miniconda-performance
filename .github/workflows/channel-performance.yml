@@ -160,8 +160,21 @@ jobs:
           echo "Final channel config:"
           conda config --show channels
 
+      - name: Clean Environment
+        run: |
+          conda clean --all -y
+          $packagesToRemove = @('requests', 'pytest', 'numpy', 'pandas', 'certifi', 'charset-normalizer', 'idna', 'urllib3')
+          
+          foreach ($pkg in $packagesToRemove) {
+            try {
+              python -m pip uninstall $pkg -y
+              Write-Host "Removed: $pkg"
+            } catch {
+              Write-Host "Package $pkg not found or already removed"
+            }
+          }
+
       - name: Create Environment
-        continue-on-error: true
         id: env-create
         run: |
           conda env create -f environment-small-channel.yml -n test-env
