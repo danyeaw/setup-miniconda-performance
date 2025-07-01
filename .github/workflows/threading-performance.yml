@@ -1,10 +1,10 @@
-name: Conda Threading Performance Comparison
+name: Threading Performance Comparison
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
-    paths: [ '.github/workflows/conda-threading-comparison.yml' ]
+    paths: [ '.github/workflows/threading-comparison.yml' ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
