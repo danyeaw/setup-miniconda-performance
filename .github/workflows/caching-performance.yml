@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CACHE_NUMBER: 1
+  CACHE_NUMBER: 2
 
 jobs:
   package-caching:
@@ -51,7 +51,7 @@ jobs:
         with:
           miniconda-version: "latest"
           pkgs-dirs: ${{ matrix.cache-enabled == 'with-cache' && '~/conda_pkgs_dir' || '' }}
-          # use-only-tar-bz2: ${{ matrix.cache-enabled == 'with-cache' }}
+          use-only-tar-bz2: ${{ matrix.cache-enabled == 'with-cache' }}
 
       - name: Time Package Installation
         run: |
