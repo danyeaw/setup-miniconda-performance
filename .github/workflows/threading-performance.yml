@@ -210,8 +210,8 @@ jobs:
       - name: Generate Threading Comparison Report
         shell: pwsh
         run: |
-          echo "=== CONDA THREADING PERFORMANCE COMPARISON ==="
-          echo ""
+          Write-Output "=== CONDA THREADING PERFORMANCE COMPARISON ==="
+          Write-Output ""
           echo "| Configuration | Setup Time | Creation Time | Deletion Time | Total Time |"
           echo "|---------------|------------|---------------|---------------|------------|"
           echo "| **1 Thread** | ${{ needs.conda-single-thread.outputs.single-setup-time }}s | ${{ needs.conda-single-thread.outputs.single-creation-time }}s | ${{ needs.conda-single-thread.outputs.single-deletion-time }}s | **${{ needs.conda-single-thread.outputs.single-total-time }}s** |"
@@ -225,7 +225,7 @@ jobs:
           $single_creation = if ('${{ needs.conda-single-thread.outputs.single-creation-time }}' -ne '') { [double]'${{ needs.conda-single-thread.outputs.single-creation-time }}' } else { 0 }
           $multi_creation = if ('${{ needs.conda-multi-thread.outputs.multi-creation-time }}' -ne '') { [double]'${{ needs.conda-multi-thread.outputs.multi-creation-time }}' } else { 0 }
           
-          echo "=== PERFORMANCE ANALYSIS ==="
+          Write-Output '=== PERFORMANCE ANALYSIS ==='
           
           if ($single_total -gt 0 -and $multi_total -gt 0) {
             if ($multi_total -lt $single_total) {
@@ -233,52 +233,35 @@ jobs:
               $speedup = [math]::Round(($single_total / $multi_total), 2)
               $improvement = [math]::Round((($single_total - $multi_total) / $single_total) * 100, 1)
               $time_saved = [math]::Round(($single_total - $multi_total), 1)
-              echo "**Threading Performance**: ✅ **4 threads are ${speedup}x faster**"
-              echo "- **Total time improvement**: ${improvement}% faster (saved ${time_saved}s)"
-              echo "- **Recommendation**: Use 4 threads for conda operations"
+              Write-Output "**Threading Performance**: ✅ **4 threads are ${speedup}x faster**"
+              Write-Output "- **Total time improvement**: ${improvement}% faster (saved ${time_saved}s)"
+              Write-Output "- **Recommendation**: Use 4 threads for conda operations"
             } else {
               # Single-threading is faster
               $slowdown = [math]::Round(($multi_total / $single_total), 2)
               $regression = [math]::Round((($multi_total - $single_total) / $single_total) * 100, 1)
               $time_lost = [math]::Round(($multi_total - $single_total), 1)
-              echo "**Threading Performance**: ❌ **4 threads are ${slowdown}x slower**"
-              echo "- **Total time regression**: ${regression}% slower (+${time_lost}s overhead)"
-              echo "- **Recommendation**: Stick with single-threaded conda operations"
+              Write-Output "**Threading Performance**: ❌ **4 threads are ${slowdown}x slower**"
+              Write-Output "- **Total time regression**: ${regression}% slower (+${time_lost}s overhead)"
+              Write-Output "- **Recommendation**: Stick with single-threaded conda operations"
             }
           }
           
           # Analyze environment creation specifically (most important metric)
           if ($single_creation -gt 0 -and $multi_creation -gt 0) {
-            echo ""
-            echo "=== ENVIRONMENT CREATION ANALYSIS ==="
+            Write-Output ""
+            Write-Output '=== ENVIRONMENT CREATION ANALYSIS ==='
             if ($multi_creation -lt $single_creation) {
               $creation_speedup = [math]::Round(($single_creation / $multi_creation), 2)
               $creation_improvement = [math]::Round((($single_creation - $multi_creation) / $single_creation) * 100, 1)
               $creation_time_saved = [math]::Round(($single_creation - $multi_creation), 1)
-              echo "**Environment Creation**: ✅ **${creation_speedup}x faster with 4 threads**"
-              echo "- **Creation time improvement**: ${creation_improvement}% faster (saved ${creation_time_saved}s)"
+              Write-Output "**Environment Creation**: ✅ **${creation_speedup}x faster with 4 threads**"
+              Write-Output "- **Creation time improvement**: ${creation_improvement}% faster (saved ${creation_time_saved}s)"
             } else {
               $creation_slowdown = [math]::Round(($multi_creation / $single_creation), 2)
-              $creation_regression = [math]::Round((($multi_creation - $single_creation) / $single_creation) * 100, 1)
+              $creation_regression = [math]::Round(($multi_creation - $single_creation) / $single_creation) * 100, 1)
               $creation_time_lost = [math]::Round(($multi_creation - $single_creation), 1)
-              echo "**Environment Creation**: ❌ **${creation_slowdown}x slower with 4 threads**"
-              echo "- **Creation time regression**: ${creation_regression}% slower (+${creation_time_lost}s)"
+              Write-Output "**Environment Creation**: ❌ **${creation_slowdown}x slower with 4 threads**"
+              Write-Output "- **Creation time regression**: ${creation_regression}% slower (+${creation_time_lost}s)"
             }
-          }
-          
-          echo ""
-          echo "=== SUMMARY ==="
-          if ($multi_total -lt $single_total) {
-            echo "🚀 **Result**: Multi-threading improves conda performance on GitHub Actions runners"
-            echo "💡 **Action**: Update your workflows to use threading environment variables"
-            echo "```yaml"
-            echo "env:"
-            echo "  CONDA_SOLVER_THREADS: 4"
-            echo "  CONDA_DOWNLOAD_THREADS: 4"
-            echo "  CONDA_VERIFY_THREADS: 4"
-            echo "```"
-          } else {
-            echo "🐌 **Result**: Multi-threading adds overhead on GitHub Actions runners"
-            echo "💡 **Action**: Keep default single-threaded conda configuration"
-            echo "⚠️  **Note**: GitHub Actions runners may have limited CPU cores or I/O constraints"
           }
