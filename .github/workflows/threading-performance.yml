@@ -1,0 +1,284 @@
+name: Conda Threading Performance Comparison
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: [ '.github/workflows/conda-threading-comparison.yml' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conda-single-thread:
+    name: Runner Conda (1 Thread)
+    runs-on: windows-latest
+    outputs:
+      single-setup-time: ${{ steps.single-results.outputs.setup-time }}
+      single-creation-time: ${{ steps.single-results.outputs.creation-time }}
+      single-deletion-time: ${{ steps.single-results.outputs.deletion-time }}
+      single-total-time: ${{ steps.single-results.outputs.total-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Single Thread Timing
+        run: |
+          echo "=== Testing Runner Conda (1 Thread) ==="
+          echo "SETUP_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Runner Conda (Single Thread)
+        run: |
+          # Use the pre-installed Conda without setup-miniconda action
+          echo "Using native runner Conda at: $env:CONDA"
+          echo "Conda version:"
+          & "$env:CONDA\Scripts\conda.exe" --version
+          echo "Conda info:"
+          & "$env:CONDA\Scripts\conda.exe" info --envs
+          
+          # Set single-threaded environment variables
+          echo "CONDA_SOLVER_THREADS=1" >> $env:GITHUB_ENV
+          echo "CONDA_DOWNLOAD_THREADS=1" >> $env:GITHUB_ENV
+          echo "CONDA_VERIFY_THREADS=1" >> $env:GITHUB_ENV
+          
+          # Initialize conda for PowerShell
+          & "$env:CONDA\Scripts\conda.exe" init powershell
+          # Refresh environment to pick up conda
+          $env:PATH = "$env:CONDA\Scripts;$env:CONDA\Library\bin;" + $env:PATH
+          
+          echo "Threading configuration: 1 thread (single-threaded)"
+
+      - name: Calculate Setup Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:SETUP_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Runner conda setup (1 thread) took: $formatted_duration seconds"
+          echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation (Single Thread)
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          $env:CONDA_SOLVER_THREADS = "1"
+          $env:CONDA_DOWNLOAD_THREADS = "1"
+          $env:CONDA_VERIFY_THREADS = "1"
+          & "$env:CONDA\Scripts\conda.exe" env create -f environment.yml -n single-thread-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Environment creation (1 thread) took: $formatted_duration seconds"
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Deletion
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          & "$env:CONDA\Scripts\conda.exe" env remove -n single-thread-test -y
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Environment deletion took: $formatted_duration seconds"
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Calculate Total Time
+        run: |
+          $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
+
+      - name: Set Single Thread Results
+        id: single-results
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Single Thread Results
+        run: |
+          echo "=== RUNNER CONDA SINGLE THREAD RESULTS ==="
+          echo "Setup Time: $env:SETUP_TIME seconds"
+          echo "Creation Time: $env:CREATION_TIME seconds"
+          echo "Deletion Time: $env:DELETION_TIME seconds"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+
+  conda-multi-thread:
+    name: Runner Conda (4 Threads)
+    runs-on: windows-latest
+    outputs:
+      multi-setup-time: ${{ steps.multi-results.outputs.setup-time }}
+      multi-creation-time: ${{ steps.multi-results.outputs.creation-time }}
+      multi-deletion-time: ${{ steps.multi-results.outputs.deletion-time }}
+      multi-total-time: ${{ steps.multi-results.outputs.total-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Multi Thread Timing
+        run: |
+          echo "=== Testing Runner Conda (4 Threads) ==="
+          echo "SETUP_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Runner Conda (Multi Thread)
+        run: |
+          # Use the pre-installed Conda without setup-miniconda action
+          echo "Using native runner Conda at: $env:CONDA"
+          echo "Conda version:"
+          & "$env:CONDA\Scripts\conda.exe" --version
+          echo "Conda info:"
+          & "$env:CONDA\Scripts\conda.exe" info --envs
+          
+          # Set multi-threaded environment variables
+          echo "CONDA_SOLVER_THREADS=4" >> $env:GITHUB_ENV
+          echo "CONDA_DOWNLOAD_THREADS=4" >> $env:GITHUB_ENV
+          echo "CONDA_VERIFY_THREADS=4" >> $env:GITHUB_ENV
+          
+          # Initialize conda for PowerShell
+          & "$env:CONDA\Scripts\conda.exe" init powershell
+          # Refresh environment to pick up conda
+          $env:PATH = "$env:CONDA\Scripts;$env:CONDA\Library\bin;" + $env:PATH
+          
+          echo "Threading configuration: 4 threads (multi-threaded)"
+
+      - name: Calculate Setup Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:SETUP_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Runner conda setup (4 threads) took: $formatted_duration seconds"
+          echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation (Multi Thread)
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          $env:CONDA_SOLVER_THREADS = "4"
+          $env:CONDA_DOWNLOAD_THREADS = "4"
+          $env:CONDA_VERIFY_THREADS = "4"
+          & "$env:CONDA\Scripts\conda.exe" env create -f environment.yml -n multi-thread-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Environment creation (4 threads) took: $formatted_duration seconds"
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Deletion
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          & "$env:CONDA\Scripts\conda.exe" env remove -n multi-thread-test -y
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Environment deletion took: $formatted_duration seconds"
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Calculate Total Time
+        run: |
+          $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
+
+      - name: Set Multi Thread Results
+        id: multi-results
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Multi Thread Results
+        run: |
+          echo "=== RUNNER CONDA MULTI THREAD RESULTS ==="
+          echo "Setup Time: $env:SETUP_TIME seconds"
+          echo "Creation Time: $env:CREATION_TIME seconds"
+          echo "Deletion Time: $env:DELETION_TIME seconds"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+
+  threading-comparison:
+    name: Threading Comparison Summary
+    runs-on: windows-latest
+    needs: [conda-single-thread, conda-multi-thread]
+    if: always()
+    steps:
+      - name: Generate Threading Comparison Report
+        shell: pwsh
+        run: |
+          echo "=== CONDA THREADING PERFORMANCE COMPARISON ==="
+          echo ""
+          echo "| Configuration | Setup Time | Creation Time | Deletion Time | Total Time |"
+          echo "|---------------|------------|---------------|---------------|------------|"
+          echo "| **1 Thread** | ${{ needs.conda-single-thread.outputs.single-setup-time }}s | ${{ needs.conda-single-thread.outputs.single-creation-time }}s | ${{ needs.conda-single-thread.outputs.single-deletion-time }}s | **${{ needs.conda-single-thread.outputs.single-total-time }}s** |"
+          echo "| **4 Threads** | ${{ needs.conda-multi-thread.outputs.multi-setup-time }}s | ${{ needs.conda-multi-thread.outputs.multi-creation-time }}s | ${{ needs.conda-multi-thread.outputs.multi-deletion-time }}s | **${{ needs.conda-multi-thread.outputs.multi-total-time }}s** |"
+          echo ""
+          
+          # Calculate performance difference
+          $single_total = if ('${{ needs.conda-single-thread.outputs.single-total-time }}' -ne '') { [double]'${{ needs.conda-single-thread.outputs.single-total-time }}' } else { 0 }
+          $multi_total = if ('${{ needs.conda-multi-thread.outputs.multi-total-time }}' -ne '') { [double]'${{ needs.conda-multi-thread.outputs.multi-total-time }}' } else { 0 }
+          
+          $single_creation = if ('${{ needs.conda-single-thread.outputs.single-creation-time }}' -ne '') { [double]'${{ needs.conda-single-thread.outputs.single-creation-time }}' } else { 0 }
+          $multi_creation = if ('${{ needs.conda-multi-thread.outputs.multi-creation-time }}' -ne '') { [double]'${{ needs.conda-multi-thread.outputs.multi-creation-time }}' } else { 0 }
+          
+          echo "=== PERFORMANCE ANALYSIS ==="
+          
+          if ($single_total -gt 0 -and $multi_total -gt 0) {
+            if ($multi_total -lt $single_total) {
+              # Multi-threading is faster
+              $speedup = [math]::Round(($single_total / $multi_total), 2)
+              $improvement = [math]::Round((($single_total - $multi_total) / $single_total) * 100, 1)
+              $time_saved = [math]::Round(($single_total - $multi_total), 1)
+              echo "**Threading Performance**: ✅ **4 threads are ${speedup}x faster**"
+              echo "- **Total time improvement**: ${improvement}% faster (saved ${time_saved}s)"
+              echo "- **Recommendation**: Use 4 threads for conda operations"
+            } else {
+              # Single-threading is faster
+              $slowdown = [math]::Round(($multi_total / $single_total), 2)
+              $regression = [math]::Round((($multi_total - $single_total) / $single_total) * 100, 1)
+              $time_lost = [math]::Round(($multi_total - $single_total), 1)
+              echo "**Threading Performance**: ❌ **4 threads are ${slowdown}x slower**"
+              echo "- **Total time regression**: ${regression}% slower (+${time_lost}s overhead)"
+              echo "- **Recommendation**: Stick with single-threaded conda operations"
+            }
+          }
+          
+          # Analyze environment creation specifically (most important metric)
+          if ($single_creation -gt 0 -and $multi_creation -gt 0) {
+            echo ""
+            echo "=== ENVIRONMENT CREATION ANALYSIS ==="
+            if ($multi_creation -lt $single_creation) {
+              $creation_speedup = [math]::Round(($single_creation / $multi_creation), 2)
+              $creation_improvement = [math]::Round((($single_creation - $multi_creation) / $single_creation) * 100, 1)
+              $creation_time_saved = [math]::Round(($single_creation - $multi_creation), 1)
+              echo "**Environment Creation**: ✅ **${creation_speedup}x faster with 4 threads**"
+              echo "- **Creation time improvement**: ${creation_improvement}% faster (saved ${creation_time_saved}s)"
+            } else {
+              $creation_slowdown = [math]::Round(($multi_creation / $single_creation), 2)
+              $creation_regression = [math]::Round((($multi_creation - $single_creation) / $single_creation) * 100, 1)
+              $creation_time_lost = [math]::Round(($multi_creation - $single_creation), 1)
+              echo "**Environment Creation**: ❌ **${creation_slowdown}x slower with 4 threads**"
+              echo "- **Creation time regression**: ${creation_regression}% slower (+${creation_time_lost}s)"
+            }
+          }
+          
+          echo ""
+          echo "=== SUMMARY ==="
+          if ($multi_total -lt $single_total) {
+            echo "🚀 **Result**: Multi-threading improves conda performance on GitHub Actions runners"
+            echo "💡 **Action**: Update your workflows to use threading environment variables"
+            echo "```yaml"
+            echo "env:"
+            echo "  CONDA_SOLVER_THREADS: 4"
+            echo "  CONDA_DOWNLOAD_THREADS: 4"
+            echo "  CONDA_VERIFY_THREADS: 4"
+            echo "```"
+          } else {
+            echo "🐌 **Result**: Multi-threading adds overhead on GitHub Actions runners"
+            echo "💡 **Action**: Keep default single-threaded conda configuration"
+            echo "⚠️  **Note**: GitHub Actions runners may have limited CPU cores or I/O constraints"
+          }
