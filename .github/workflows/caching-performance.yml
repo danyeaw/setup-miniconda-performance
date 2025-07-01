@@ -293,15 +293,56 @@ jobs:
       - name: Cleanup
         run: conda env remove -n drive-perf-test -y
 
-      - name: Output Raw Results for Logging
+  summary-report:
+    name: Performance Summary Report
+    runs-on: ubuntu-latest
+    needs: [package-caching, environment-caching, drive-optimization]
+    if: always()
+    steps:
+      - name: Generate Summary Table
         run: |
-          echo "=== RAW CACHING PERFORMANCE RESULTS ==="
-          echo "Package Caching:"
-          echo "  Without Cache: ${{ needs.package-caching.outputs.without-cache-time }}s"
-          echo "  With Cache: ${{ needs.package-caching.outputs.with-cache-time }}s"
-          echo "Environment Caching:"
-          echo "  First Run: ${{ needs.environment-caching.outputs.first-run-time }}s"
-          echo "  Second Run: ${{ needs.environment-caching.outputs.second-run-time }}s"
-          echo "Drive Optimization:"
-          echo "  C: Drive: ${{ needs.drive-optimization.outputs.c-drive-time }}s"
-          echo "  D: Drive: ${{ needs.drive-optimization.outputs.d-drive-time }}s"
+          echo "# Caching Performance Summary Report"
+          echo ""
+          echo "| Test Type | Scenario | Time (seconds) | Cache Hit | Notes |"
+          echo "|-----------|----------|----------------|-----------|-------|"
+          echo "| Package Caching | Without Cache | ${{ needs.package-caching.outputs.without-cache-time }} | N/A | Baseline installation |"
+          echo "| Package Caching | With Cache | ${{ needs.package-caching.outputs.with-cache-time }} | N/A | Cached packages |"
+          echo "| Environment Caching | First Run | ${{ needs.environment-caching.outputs.first-run-time }} | ${{ needs.environment-caching.outputs.first-cache-hit }} | Cache miss expected |"
+          echo "| Environment Caching | Second Run | ${{ needs.environment-caching.outputs.second-run-time }} | ${{ needs.environment-caching.outputs.second-cache-hit }} | Cache hit expected |"
+          echo "| Drive Optimization | C: Drive | ${{ needs.drive-optimization.outputs.c-drive-time }} | N/A | Standard drive |"
+          echo "| Drive Optimization | D: Drive | ${{ needs.drive-optimization.outputs.d-drive-time }} | N/A | Alternative drive |"
+          echo ""
+          echo "## Performance Calculations"
+          
+          # Package caching improvement
+          WITHOUT_CACHE="${{ needs.package-caching.outputs.without-cache-time }}"
+          WITH_CACHE="${{ needs.package-caching.outputs.with-cache-time }}"
+          
+          if [ -n "$WITHOUT_CACHE" ] && [ -n "$WITH_CACHE" ] && [ "$WITHOUT_CACHE" != "0" ]; then
+            PACKAGE_IMPROVEMENT=$(echo "scale=1; ($WITHOUT_CACHE - $WITH_CACHE) / $WITHOUT_CACHE * 100" | bc -l)
+            echo "- Package caching improvement: ${PACKAGE_IMPROVEMENT}%"
+          fi
+          
+          # Environment caching improvement  
+          FIRST_RUN="${{ needs.environment-caching.outputs.first-run-time }}"
+          SECOND_RUN="${{ needs.environment-caching.outputs.second-run-time }}"
+          SECOND_CACHE_HIT="${{ needs.environment-caching.outputs.second-cache-hit }}"
+          
+          if [ "$SECOND_CACHE_HIT" = "true" ] && [ -n "$FIRST_RUN" ] && [ -n "$SECOND_RUN" ] && [ "$FIRST_RUN" != "0" ]; then
+            ENV_IMPROVEMENT=$(echo "scale=1; ($FIRST_RUN - $SECOND_RUN) / $FIRST_RUN * 100" | bc -l)
+            echo "- Environment caching improvement: ${ENV_IMPROVEMENT}%"
+          fi
+          
+          # Drive optimization comparison
+          C_DRIVE="${{ needs.drive-optimization.outputs.c-drive-time }}"
+          D_DRIVE="${{ needs.drive-optimization.outputs.d-drive-time }}"
+          
+          if [ -n "$C_DRIVE" ] && [ -n "$D_DRIVE" ] && [ "$C_DRIVE" != "0" ]; then
+            DRIVE_IMPROVEMENT=$(echo "scale=1; ($C_DRIVE - $D_DRIVE) / $C_DRIVE * 100" | bc -l)
+            if [ $(echo "$DRIVE_IMPROVEMENT > 0" | bc -l) -eq 1 ]; then
+              echo "- D: drive is ${DRIVE_IMPROVEMENT}% faster than C: drive"
+            else
+              DRIVE_SLOWER=$(echo "scale=1; $DRIVE_IMPROVEMENT * -1" | bc -l)
+              echo "- D: drive is ${DRIVE_SLOWER}% slower than C: drive"
+            fi
+          fi
