@@ -326,10 +326,88 @@ jobs:
           echo "Total Time: $env:TOTAL_TIME seconds"
           echo "This uses Miniforge with conda-forge as default channel"
 
+  micromamba-comparison:
+    name: Micromamba Alternative
+    runs-on: windows-latest
+    outputs:
+      micromamba-setup-time: ${{ steps.micromamba-results.outputs.setup-time }}
+      micromamba-creation-time: ${{ steps.micromamba-results.outputs.creation-time }}
+      micromamba-deletion-time: ${{ steps.micromamba-results.outputs.deletion-time }}
+      micromamba-total-time: ${{ steps.micromamba-results.outputs.total-time }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start Micromamba Timing
+        run: |
+          echo "=== Testing Micromamba Alternative ==="
+          echo "SETUP_START_TIME=$([System.DateTime]::Now.Ticks)" >> $env:GITHUB_ENV
+
+      - name: Setup Micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          cache-environment: false
+          init-shell: powershell
+
+      - name: Calculate Setup Time
+        run: |
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $env:SETUP_START_TIME) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Micromamba setup took: $formatted_duration seconds"
+          echo "SETUP_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Creation
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          micromamba env create -f environment.yml -n micromamba-perf-test
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Micromamba environment creation took: $formatted_duration seconds"
+          echo "CREATION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Time Environment Deletion
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          micromamba env remove -n micromamba-perf-test -y
+          $end_time = [System.DateTime]::Now.Ticks
+          $duration = ($end_time - $start_time) / 10000000
+          $formatted_duration = [math]::Round($duration, 1)
+          echo "Micromamba environment deletion took: $formatted_duration seconds"
+          echo "DELETION_TIME=$formatted_duration" >> $env:GITHUB_ENV
+
+      - name: Calculate Total Time
+        run: |
+          $total = [double]$env:SETUP_TIME + [double]$env:CREATION_TIME + [double]$env:DELETION_TIME
+          $formatted_total = [math]::Round($total, 1)
+          echo "TOTAL_TIME=$formatted_total" >> $env:GITHUB_ENV
+
+      - name: Set Micromamba Results
+        id: micromamba-results
+        run: |
+          echo "setup-time=$env:SETUP_TIME" >> $env:GITHUB_OUTPUT
+          echo "creation-time=$env:CREATION_TIME" >> $env:GITHUB_OUTPUT
+          echo "deletion-time=$env:DELETION_TIME" >> $env:GITHUB_OUTPUT
+          echo "total-time=$env:TOTAL_TIME" >> $env:GITHUB_OUTPUT
+
+      - name: Report Micromamba Results
+        run: |
+          echo "=== MICROMAMBA RESULTS ==="
+          echo "Setup Time: $env:SETUP_TIME seconds"
+          echo "Creation Time: $env:CREATION_TIME seconds"
+          echo "Deletion Time: $env:DELETION_TIME seconds"
+          echo "Total Time: $env:TOTAL_TIME seconds"
+          echo "This uses Micromamba for fast package management"
+
   setup-summary:
     name: Setup Comparison Summary
     runs-on: windows-latest
-    needs: [native-conda-baseline, setup-runner-conda, latest-miniconda, miniforge-comparison]
+    needs: [native-conda-baseline, setup-runner-conda, latest-miniconda, miniforge-comparison, micromamba-comparison]
     if: always()
     steps:
       - name: Generate Setup Comparison Report
@@ -343,6 +421,7 @@ jobs:
           echo "| Setup Runner Conda | ${{ needs.setup-runner-conda.outputs.runner-setup-time }}s | ${{ needs.setup-runner-conda.outputs.runner-creation-time }}s | ${{ needs.setup-runner-conda.outputs.runner-deletion-time }}s | ${{ needs.setup-runner-conda.outputs.runner-total-time }}s | vs Native |"
           echo "| Latest Miniconda | ${{ needs.latest-miniconda.outputs.latest-setup-time }}s | ${{ needs.latest-miniconda.outputs.latest-creation-time }}s | ${{ needs.latest-miniconda.outputs.latest-deletion-time }}s | ${{ needs.latest-miniconda.outputs.latest-total-time }}s | vs Native |"
           echo "| Miniforge | ${{ needs.miniforge-comparison.outputs.miniforge-setup-time }}s | ${{ needs.miniforge-comparison.outputs.miniforge-creation-time }}s | ${{ needs.miniforge-comparison.outputs.miniforge-deletion-time }}s | ${{ needs.miniforge-comparison.outputs.miniforge-total-time }}s | vs Native |"
+          echo "| **Micromamba** | ${{ needs.micromamba-comparison.outputs.micromamba-setup-time }}s | ${{ needs.micromamba-comparison.outputs.micromamba-creation-time }}s | ${{ needs.micromamba-comparison.outputs.micromamba-deletion-time }}s | **${{ needs.micromamba-comparison.outputs.micromamba-total-time }}s** | vs Native |"
           echo ""
           
           # Calculate overheads and ratios
@@ -350,6 +429,7 @@ jobs:
           $runner_total = if ('${{ needs.setup-runner-conda.outputs.runner-total-time }}' -ne '') { [double]'${{ needs.setup-runner-conda.outputs.runner-total-time }}' } else { 0 }
           $latest_total = if ('${{ needs.latest-miniconda.outputs.latest-total-time }}' -ne '') { [double]'${{ needs.latest-miniconda.outputs.latest-total-time }}' } else { 0 }
           $miniforge_total = if ('${{ needs.miniforge-comparison.outputs.miniforge-total-time }}' -ne '') { [double]'${{ needs.miniforge-comparison.outputs.miniforge-total-time }}' } else { 0 }
+          $micromamba_total = if ('${{ needs.micromamba-comparison.outputs.micromamba-total-time }}' -ne '') { [double]'${{ needs.micromamba-comparison.outputs.micromamba-total-time }}' } else { 0 }
           
           # Find fastest method
           $fastest_method = "Native Runner Conda"
@@ -366,6 +446,10 @@ jobs:
           if ($miniforge_total -gt 0 -and $miniforge_total -lt $fastest_time) {
             $fastest_method = "Miniforge"
             $fastest_time = $miniforge_total
+          }
+          if ($micromamba_total -gt 0 -and $micromamba_total -lt $fastest_time) {
+            $fastest_method = "Micromamba"
+            $fastest_time = $micromamba_total
           }
           
           echo "**Fastest Method**: $fastest_method (${fastest_time}s total)"
@@ -388,4 +472,10 @@ jobs:
             $miniforge_overhead = [math]::Round(($miniforge_total - $native_total), 1)
             $miniforge_ratio = [math]::Round(($miniforge_total / $native_total), 1)
             echo "**Miniforge Overhead**: +${miniforge_overhead}s (${miniforge_ratio}x slower than native)"
+          }
+          
+          if ($native_total -gt 0 -and $micromamba_total -gt 0) {
+            $micromamba_overhead = [math]::Round(($micromamba_total - $native_total), 1)
+            $micromamba_ratio = [math]::Round(($micromamba_total / $native_total), 1)
+            echo "**Micromamba Overhead**: +${micromamba_overhead}s (${micromamba_ratio}x slower than native)"
           }
