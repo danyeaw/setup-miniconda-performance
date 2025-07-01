@@ -17,11 +17,7 @@ on:
           - lockfile-performance
           - shell-performance
           - channel-performance
-      generate-summary:
-        description: 'Generate summary report after tests'
-        required: false
-        default: true
-        type: boolean
+          - threading-performance
   push:
     branches: [ main ]
     paths: [ '.github/workflows/main-performance-test.yml' ]
@@ -56,7 +52,8 @@ jobs:
               'solver-optimization': 'solver-optimization.yml',
               'lockfile-performance': 'lockfile-performance.yml',
               'shell-performance': 'shell-performance.yml',
-              'channel-performance': 'channel-performance.yml'
+              'channel-performance': 'channel-performance.yml',
+              'threading-performance': 'threading-performance.yml'
             };
             
             const triggeredWorkflows = [];
