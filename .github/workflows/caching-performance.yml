@@ -41,6 +41,11 @@ jobs:
           restore-keys: |
             windows-cache-test-${{ env.CACHE_NUMBER }}-
 
+      - name: Start Total Timing
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          echo "TOTAL_START_TIME=$start_time" >> $env:GITHUB_ENV
+
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -50,12 +55,21 @@ jobs:
 
       - name: Time Package Installation
         run: |
-          $start_time = [System.DateTime]::Now.Ticks
+          # Time just the conda env create step
+          $env_start_time = [System.DateTime]::Now.Ticks
           conda env create -f environment.yml -n cache-perf-test
-          $end_time = [System.DateTime]::Now.Ticks
-          $duration = ($end_time - $start_time) / 10000000
-          $formatted_duration = [math]::Round($duration, 1)
-          echo "INSTALL_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          $env_end_time = [System.DateTime]::Now.Ticks
+          
+          # Calculate total time including cache operations
+          $total_end_time = [System.DateTime]::Now.Ticks
+          $total_duration = ($total_end_time - $env:TOTAL_START_TIME) / 10000000
+          $env_duration = ($env_end_time - $env_start_time) / 10000000
+          
+          $total_formatted = [math]::Round($total_duration, 1)
+          $env_formatted = [math]::Round($env_duration, 1)
+          
+          echo "INSTALL_TIME=$total_formatted" >> $env:GITHUB_ENV
+          echo "ENV_ONLY_TIME=$env_formatted" >> $env:GITHUB_ENV
 
       - name: Set Without Cache Outputs
         if: matrix.cache-enabled == 'without-cache'
@@ -73,7 +87,12 @@ jobs:
         run: |
           echo "=== CACHE PERFORMANCE RESULTS ==="
           echo "Cache Mode: ${{ matrix.cache-enabled }}"
-          echo "Installation Time: $env:INSTALL_TIME seconds"
+          echo "Total Time (including cache operations): $env:INSTALL_TIME seconds"
+          echo "Environment Creation Only: $env:ENV_ONLY_TIME seconds"
+          if ("${{ matrix.cache-enabled }}" -eq "with-cache") {
+            $cache_overhead = [math]::Round(($env:INSTALL_TIME - $env:ENV_ONLY_TIME), 1)
+            echo "Cache Extraction Time: $cache_overhead seconds"
+          }
 
       - name: Cleanup
         run: conda env remove -n cache-perf-test -y
@@ -254,6 +273,11 @@ jobs:
           restore-keys: |
             ${{ matrix.drive }}-cache-${{ env.CACHE_NUMBER }}-
 
+      - name: Start Total Timing (Including Cache Operations)
+        run: |
+          $start_time = [System.DateTime]::Now.Ticks
+          echo "TOTAL_START_TIME=$start_time" >> $env:GITHUB_ENV
+
       - name: Setup Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -263,12 +287,21 @@ jobs:
 
       - name: Time Drive Performance
         run: |
-          $start_time = [System.DateTime]::Now.Ticks
+          # Time just the conda env create step
+          $env_start_time = [System.DateTime]::Now.Ticks
           conda env create -f environment.yml -n drive-perf-test
-          $end_time = [System.DateTime]::Now.Ticks
-          $duration = ($end_time - $start_time) / 10000000
-          $formatted_duration = [math]::Round($duration, 1)
-          echo "DRIVE_TIME=$formatted_duration" >> $env:GITHUB_ENV
+          $env_end_time = [System.DateTime]::Now.Ticks
+          
+          # Calculate total time including cache operations
+          $total_end_time = [System.DateTime]::Now.Ticks
+          $total_duration = ($total_end_time - $env:TOTAL_START_TIME) / 10000000
+          $env_duration = ($env_end_time - $env_start_time) / 10000000
+          
+          $total_formatted = [math]::Round($total_duration, 1)
+          $env_formatted = [math]::Round($env_duration, 1)
+          
+          echo "DRIVE_TIME=$total_formatted" >> $env:GITHUB_ENV
+          echo "ENV_ONLY_TIME=$env_formatted" >> $env:GITHUB_ENV
 
       - name: Set C Drive Outputs
         if: matrix.drive == 'c-drive'
@@ -286,9 +319,11 @@ jobs:
         run: |
           echo "=== DRIVE OPTIMIZATION RESULTS ==="
           echo "Drive: ${{ matrix.drive }}"
-          echo "Installation Time: $env:DRIVE_TIME seconds"
+          echo "Total Time (including cache operations): $env:DRIVE_TIME seconds"
+          echo "Environment Creation Only: $env:ENV_ONLY_TIME seconds"
           echo "Cache Path: ${{ env.CACHE_PATH }}"
-          echo "Compare c-drive vs d-drive results to see if D: drive helps"
+          $cache_overhead = [math]::Round(($env:DRIVE_TIME - $env:ENV_ONLY_TIME), 1)
+          echo "Cache Extraction Time: $cache_overhead seconds"
 
       - name: Cleanup
         run: conda env remove -n drive-perf-test -y
@@ -303,14 +338,14 @@ jobs:
         run: |
           echo "# Caching Performance Summary Report"
           echo ""
-          echo "| Test Type | Scenario | Time (seconds) | Cache Hit | Notes |"
-          echo "|-----------|----------|----------------|-----------|-------|"
+          echo "| Test Type | Scenario | Total Time (seconds) | Cache Hit | Notes |"
+          echo "|-----------|----------|----------------------|-----------|-------|"
           echo "| Package Caching | Without Cache | ${{ needs.package-caching.outputs.without-cache-time }} | N/A | Baseline installation |"
-          echo "| Package Caching | With Cache | ${{ needs.package-caching.outputs.with-cache-time }} | N/A | Cached packages |"
+          echo "| Package Caching | With Cache | ${{ needs.package-caching.outputs.with-cache-time }} | N/A | Includes cache extraction time |"
           echo "| Environment Caching | First Run | ${{ needs.environment-caching.outputs.first-run-time }} | ${{ needs.environment-caching.outputs.first-cache-hit }} | Cache miss expected |"
           echo "| Environment Caching | Second Run | ${{ needs.environment-caching.outputs.second-run-time }} | ${{ needs.environment-caching.outputs.second-cache-hit }} | Cache hit expected |"
-          echo "| Drive Optimization | C: Drive | ${{ needs.drive-optimization.outputs.c-drive-time }} | N/A | Standard drive |"
-          echo "| Drive Optimization | D: Drive | ${{ needs.drive-optimization.outputs.d-drive-time }} | N/A | Alternative drive |"
+          echo "| Drive Optimization | C: Drive | ${{ needs.drive-optimization.outputs.c-drive-time }} | N/A | Includes cache extraction time |"
+          echo "| Drive Optimization | D: Drive | ${{ needs.drive-optimization.outputs.d-drive-time }} | N/A | Includes cache extraction time |"
           echo ""
           echo "## Performance Calculations"
           
